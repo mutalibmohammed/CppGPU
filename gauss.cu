@@ -7,7 +7,6 @@ __global__
 void gauss_seidel(int ny, int nx, const T *p, T *pnew) {
     for (int i = 1; i < ny - 1; i++) {
         for (int j = 1; j < nx - 1; j++) {
-            printf("Do I xome here\n");
             pnew[i * nx + j] = 0.25 * (pnew[(i - 1) * nx + j] + pnew[i * nx + (j - 1)] + p[(i + 1) * nx + j] + p[i * nx + (j + 1)]);
         }
     }
@@ -17,7 +16,7 @@ int main() {
 
     typedef double gtype;
 
-    constexpr const int iterations = 1000;
+    constexpr const int iterations = 10000;
     constexpr const int nx = 101;
     constexpr const int ny = 101;
  
@@ -36,13 +35,21 @@ int main() {
     if (err != cudaSuccess) std::cout << cudaGetErrorString(err) << std::endl;
 
 
-    for (int i = 1; i < ny - 1; i++)
+    // Dirichlet boundary conditions
+    for (int y = 0; y < ny; y++)
     {
-        for (int j = 1; j < nx - 1; j++)
-        {
-            p[i][j] = 1;
-            pnew[i][j] = 1;
-        }
+        p[y][0] = 10;
+        pnew[y][0] = 10;
+        p[y][nx - 1] = 10;
+        pnew[y][nx - 1] = 10;
+    }
+    
+    for (int x = 0; x < nx; x++)
+    {
+        p[0][x] = 10;
+        pnew[0][x] = 10;
+        p[ny - 1][x] = 10;
+        pnew[ny - 1][x] = 10;
     }
 
     
