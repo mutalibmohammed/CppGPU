@@ -71,18 +71,6 @@ void gauss_seidel_block_wave(const T p[ny][nx], T pnew[ny][nx]) {
     }
 }
 
-// template <int ncellx, int ncelly, int nu>
-// void swap_pointer(double (**ptr1)[ncelly][nu], double (**ptr2)[ncelly][nu])
-// {
-//     const auto range = std::views::iota(0, 1);
-//     std::for_each(std::execution::par_unseq, range.begin(), range.end(), [=](int _) {
-//          auto temp = *ptr1;
-//         *ptr1 = *ptr2;
-//         *ptr2 = temp;
-//     });
-   
-// }
-
 template <typename T, int nx>
 void swap_pointer(T (**ptr1)[nx], T (**ptr2)[nx])
 {
@@ -97,8 +85,8 @@ int main()
     using type = double;
 
     constexpr const int n = 10000;
-    constexpr const int nx = 100;
-    constexpr const int ny = 100;
+    constexpr const int nx = 1024;
+    constexpr const int ny = 1024;
 
     auto p    = new type[ny][nx]();
     auto pnew = new type[ny][nx]();
