@@ -33,21 +33,21 @@ void gauss_seidel_wave(const T p[ny][nx], T pnew[ny][nx])
     }
 }
 
+template <typename T, int ny, int nx, int blocksize_y, int blocksize_x>
+void gauss_seidel_block_wave(const T p[ny][nx], T pnew[ny][nx])
+{
 
-template <typename T, int ny, int nx>
-void gauss_seidel_block_wave(const T p[ny][nx], T pnew[ny][nx]) {
-    int blocksize_x = 10;
-    int blocksize_y = 10;
+    constexpr const int nbx = nx / blocksize_x;
+    constexpr const int nby = ny / blocksize_y;
 
-    int nbx = nx / blocksize_x;
-    int nby = ny / blocksize_y;
-
-    for(int bwavefront = 0; bwavefront < nby + nbx - 1; bwavefront++) {
+    for (int bwavefront = 0; bwavefront < nby + nbx - 1; bwavefront++)
+    {
         int bxmin = std::max(0, bwavefront - (nby - 1));
         int bxmax = std::min(bwavefront, nbx - 1);
 
         const auto bx_range = std::views::iota(bxmin, bxmax + 1);
-           std::for_each(std::execution::par_unseq, bx_range.begin(), bx_range.end(), [=](int bx) {
+        std::for_each(std::execution::par_unseq, bx_range.begin(), bx_range.end(), [=](int bx)
+                      {
                 int by = bwavefront - bx;
                  
                  int startx = bx * blocksize_x;
@@ -59,15 +59,57 @@ void gauss_seidel_block_wave(const T p[ny][nx], T pnew[ny][nx]) {
                      int xmax = std::min(wavefront, blocksize_x - 1);
 
                      const auto x_range = std::views::iota(xmin, xmax + 1);
-                     std::for_each(std::execution::par, x_range.begin(), x_range.end(), [=](int x)
+                     std::for_each(std::execution::unseq, x_range.begin(), x_range.end(), [=](int x)
                                    {
                         int y = wavefront - x;
                         y = starty + y;
                         x = startx + x;
                         if(x != 0 && x != nx-1 && y != 0 && y != ny-1)
                             pnew[y][x] = 0.25 * (pnew[y-1][x] + pnew[y][x-1] + p[y + 1][x] + p[y][x + 1]); });
-                 }
-           });
+                 } });
+    }
+}
+
+template <typename T, int ny, int nx, int blocksize_y, int blocksize_x>
+void gauss_seidel_block_wave_2(const T p[ny][nx], T pnew[ny][nx])
+{
+    constexpr const int max_wavefront = std::max(blocksize_x, blocksize_y); // No. of blocks in the longest wavefront
+    constexpr const int nbx = nx / blocksize_x;
+    constexpr const int nby = ny / blocksize_y;
+
+#pragma unroll
+    for (int bwavefront = 0; bwavefront < nby + nbx - 1; bwavefront++)
+    {
+        const int bxmin = std::max(0, bwavefront - (nby - 1));
+        const int bxmax = std::min(bwavefront, nbx - 1);
+        const auto bx_range = std::views::iota(bxmin, bxmax + 1);
+        constexpr const auto x_range = std::views::iota(0, max_wavefront + 1);
+
+        const auto something = std::views::cartesian_product(bx_range, x_range);
+
+#pragma unroll
+        for (int wavefront = 0; wavefront < blocksize_x + blocksize_y - 1; wavefront++)
+        {
+            std::for_each(std::execution::par_unseq, something.begin(), something.end(), [=](auto pair)
+                          {
+                const int bx = pair.first;
+                const int x = pair.second;
+                const int by = bwavefront - bx;
+
+                const int xmin = max(0, wavefront - (blocksize_y - 1));
+                const int xmax = min(wavefront, blocksize_x - 1);
+
+                if (x >= xmin && x <= xmax)
+                {
+                    const int y = wavefront - x;
+                    const int startx = bx * blocksize_x;
+                    const int starty = by * blocksize_y;
+                    const int x_ = startx + x;
+                    const int y_ = starty + y;
+                    if (x_ != 0 && x_ != nx - 1 && y_ != 0 && y_ != ny - 1)
+                        pnew[y_][x_] = 0.25 * (pnew[y_ - 1][x_] + pnew[y_][x_ - 1] + p[y_ + 1][x_] + p[y_][x_ + 1]);
+                } });
+        }
     }
 }
 
@@ -81,14 +123,19 @@ void swap_pointer(T (**ptr1)[nx], T (**ptr2)[nx])
 
 int main()
 {
-    
+
     using type = double;
 
     constexpr const int n = 10000;
     constexpr const int nx = 1024;
     constexpr const int ny = 1024;
+    constexpr const int blocksize_y = 32;
+    constexpr const int blocksize_x = 32;
 
-    auto p    = new type[ny][nx]();
+    static_assert(ny % blocksize_y == 0, "ny must be divisible by blocksize");
+    static_assert(nx % blocksize_x == 0, "nx must be divisible by blocksize");
+
+    auto p = new type[ny][nx]();
     auto pnew = new type[ny][nx]();
 
     // Dirichlet boundary conditions
@@ -112,9 +159,9 @@ int main()
 
     for (int it = 0; it < n; it++)
     {
-        //gauss_seidel<type, ny, nx>(p, pnew);
-        //gauss_seidel<type, ny, nx>(p, pnew);
-        gauss_seidel_block_wave<type, ny, nx>(p, pnew);
+        // gauss_seidel<type, ny, nx>(p, pnew);
+        // gauss_seidel<type, ny, nx>(p, pnew);
+        gauss_seidel_block_wave_2<type, ny, nx, blocksize_y, blocksize_x>(p, pnew);
         swap_pointer<type, nx>(&p, &pnew);
     }
 
@@ -137,8 +184,7 @@ int main()
     return 0;
 }
 
-
-// # count number of floating point operations and compare 
+// # count number of floating point operations and compare
 // # look in the kernel and see much memory is being read.
 // # talk about perfect cache model vs real cache model.
 // # start writing a paragraph every day.
