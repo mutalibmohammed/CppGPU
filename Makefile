@@ -6,7 +6,7 @@ NVCCFLAGS := -std=c++20
 
 DEBUG ?= 1
 ifeq ($(DEBUG), 1)
-    CXXFLAGS += -gpu=lineinfo -Minfo=all
+    CXXFLAGS +=  -g -gpu=lineinfo,debug -Minfo=all
     NVCCFLAGS += -g -G
 else
     CXXFLAGS += -O3

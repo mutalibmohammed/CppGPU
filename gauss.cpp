@@ -83,8 +83,7 @@ void gauss_seidel_block_wave_2(const T p[ny][nx], T pnew[ny][nx])
         const int bxmin = std::max(0, bwavefront - (nby - 1));
         const int bxmax = std::min(bwavefront, nbx - 1);
         const auto bx_range = std::views::iota(bxmin, bxmax + 1);
-        constexpr const auto x_range = std::views::iota(0, max_wavefront + 1);
-
+        constexpr const auto x_range = std::views::iota(0, max_wavefront);
         const auto something = std::views::cartesian_product(bx_range, x_range);
 
 #pragma unroll
@@ -96,8 +95,8 @@ void gauss_seidel_block_wave_2(const T p[ny][nx], T pnew[ny][nx])
                 const int x = pair.second;
                 const int by = bwavefront - bx;
 
-                const int xmin = max(0, wavefront - (blocksize_y - 1));
-                const int xmax = min(wavefront, blocksize_x - 1);
+                const int xmin = std::max(0, wavefront - (blocksize_y - 1));
+                const int xmax = std::min(wavefront, blocksize_x - 1);
 
                 if (x >= xmin && x <= xmax)
                 {
@@ -126,7 +125,7 @@ int main()
 
     using type = double;
 
-    constexpr const int n = 10000;
+    constexpr const int n = 2;
     constexpr const int nx = 1024;
     constexpr const int ny = 1024;
     constexpr const int blocksize_y = 32;
