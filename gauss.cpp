@@ -43,8 +43,8 @@ void gauss_seidel_block_wave(const T p[ny][nx], T pnew[ny][nx]) {
     int nby = ny / blocksize_y;
 
     for(int bwavefront = 0; bwavefront < nby + nbx - 1; bwavefront++) {
-        int bxmin = max(0, bwavefront - (nby - 1));
-        int bxmax = min(bwavefront, nbx - 1);
+        int bxmin = std::max(0, bwavefront - (nby - 1));
+        int bxmax = std::min(bwavefront, nbx - 1);
 
         const auto bx_range = std::views::iota(bxmin, bxmax + 1);
            std::for_each(std::execution::par_unseq, bx_range.begin(), bx_range.end(), [=](int bx) {
@@ -54,18 +54,18 @@ void gauss_seidel_block_wave(const T p[ny][nx], T pnew[ny][nx]) {
                  int starty = by * blocksize_y;
 
                  for(int wavefront = 0; wavefront < blocksize_x + blocksize_y - 1; wavefront++) {
-                    
-                    int xmin = max(0, wavefront - (blocksize_y - 1));
-                    int xmax = min(wavefront, blocksize_x - 1);
 
-                    const auto x_range = std::views::iota(xmin, xmax + 1);
-                    std::for_each(std::execution::par, x_range.begin(), x_range.end(), [=](int x) {
+                     int xmin = std::max(0, wavefront - (blocksize_y - 1));
+                     int xmax = std::min(wavefront, blocksize_x - 1);
+
+                     const auto x_range = std::views::iota(xmin, xmax + 1);
+                     std::for_each(std::execution::par, x_range.begin(), x_range.end(), [=](int x)
+                                   {
                         int y = wavefront - x;
                         y = starty + y;
                         x = startx + x;
                         if(x != 0 && x != nx-1 && y != 0 && y != ny-1)
-                            pnew[y][x] = 0.25 * (pnew[y-1][x] + pnew[y][x-1] + p[y + 1][x] + p[y][x + 1]);
-                    });
+                            pnew[y][x] = 0.25 * (pnew[y-1][x] + pnew[y][x-1] + p[y + 1][x] + p[y][x + 1]); });
                  }
            });
     }
