@@ -1,10 +1,34 @@
 #include <iostream>
 #include <numeric>
 
-__host__ __device__ std::pair<int, int> wavefront_coordinates(int ny, int nx, int wavefront, uint boundary) {
-    int xmin = max(boundary & 1, wavefront - ((ny - 1 - ((boundary >> 4) & 1))));
-    int xmax = min(wavefront - ((boundary >> 2) & 1), nx - 1 - ((boundary >> 3) & 1));    
+__host__ __device__ constexpr int _max(int a, int b)
+{
+    return a > b ? a : b;
+}
+
+__host__ __device__ constexpr int _min(int a, int b)
+{
+    return a < b ? a : b;
+}
+
+__host__ __device__ constexpr std::pair<int, int> wavefront_coordinates(int ny, int nx, int wavefront, uint boundary)
+{
+    int left = boundary & 1;
+    int top = (boundary >> 1) & 1;
+    int right = (boundary >> 2) & 1;
+    int bottom = (boundary >> 3) & 1;
+
+    int xmin = _max(left, wavefront - ((ny - 1 - bottom)));
+    int xmax = _min(wavefront - top, nx - 1 - right);
     return {xmin, xmax};
+}
+
+void test_wavefront_coordinates()
+{
+    auto constexpr result = wavefront_coordinates(10, 10, 9, 0b1111);
+    static_assert(result.first == 1);
+    static_assert(result.second == 8, "Second value is not 7");
+    std::cout << result.second << std::endl;
 }
 
 template <typename T>
@@ -25,11 +49,6 @@ __global__ void gauss_seidel_wave(int ny, int nx, const T *p, T *pnew)
 
     for (int wavefront = 2; wavefront < ny + nx - 1; wavefront++)
     {
-
-        // int xmin = max(1, wavefront - ((ny - 1) - 1));
-        // // TODO: maybe change it so its less than or equal to.
-        // int xmax = min(wavefront, nx - 1);
-
         auto [xmin, xmax] = wavefront_coordinates(ny, nx, wavefront, 0x1111);
 
         int x = threadIdx.x;
@@ -73,7 +92,7 @@ __global__ void gauss_seidel_block_wave(int nby, int nbx, int ny, int nx, const 
     for (int wavefront = 0; wavefront < blocksize_y + blocksize_x - 1; wavefront++)
     {
 
-        int xmin = max(0, wavefront - (blocksize_y- 1));
+        int xmin = max(0, wavefront - (blocksize_y - 1));
         int xmax = min(wavefront, blocksize_x - 1);
 
         int x = threadIdx.x;
@@ -93,10 +112,9 @@ __global__ void gauss_seidel_block_wave(int nby, int nbx, int ny, int nx, const 
 
 int main()
 {
-
     typedef double gtype;
 
-    constexpr const int iterations = 10000;
+    constexpr const int iterations = 5;
     constexpr const int nx = 100;
     constexpr const int ny = 100;
 
@@ -149,33 +167,35 @@ int main()
 
     for (int i = 0; i < iterations; i++)
     {
-        gauss_seidel<<<1, std::max(nx, ny)>>>(ny, nx, (i % 2 == 0) ? d_p : d_pnew, (i % 2 == 0) ? d_pnew : d_p);
-        cudaError_t errSync = cudaGetLastError();
-        cudaError_t errAsync = cudaDeviceSynchronize();
-        if (errSync != cudaSuccess)
-            printf("Sync kernel error: %s\n", cudaGetErrorString(errSync));
-        if (errAsync != cudaSuccess)
-            printf("Async kernel error: %s\n", cudaGetErrorString(errAsync));
+        // gauss_seidel<<<1, std::max(nx, ny)>>>(ny, nx, (i % 2 == 0) ? d_p : d_pnew, (i % 2 == 0) ? d_pnew : d_p);
+        // cudaError_t errSync = cudaGetLastError();
+        // cudaError_t errAsync = cudaDeviceSynchronize();
+        // if (errSync != cudaSuccess)
+        //     printf("Sync kernel error: %s\n", cudaGetErrorString(errSync));
+        // if (errAsync != cudaSuccess)
+        //     printf("Async kernel error: %s\n", cudaGetErrorString(errAsync));
 
-    //     for(int bwavefront = 0; bwavefront < nby + nbx - 1; bwavefront++) {
+        for (int bwavefront = 0; bwavefront < nby + nbx - 1; bwavefront++)
+        {
 
-    //         // Figure out the number of blocks on the wavefront
-    //         auto [bxmin, bxmax] = wavefront_coordinates(nby, nbx, bwavefront, 0);
-    //         // int bxmin = max(0, bwavefront - (nby - 1));
-    //         // int bxmax = min(bwavefront, nbx - 1);
-    //         int num_blocks = bxmax - bxmin + 1;
+            // Figure out the number of blocks on the wavefront
+            auto [bxmin, bxmax] = wavefront_coordinates(nby, nbx, bwavefront, 0);
+            // int bxmin = max(0, bwavefront - (nby - 1));
+            // int bxmax = min(bwavefront, nbx - 1);
+            int num_blocks = bxmax - bxmin + 1;
 
-    //         // Call the kernel with the number of blocks
-    //         gauss_seidel_block_wave<<<num_blocks, std::min(blocksize_y, blocksize_x)>>>(nby, nbx, ny, nx, (i % 2 == 0) ? d_p : d_pnew, (i % 2 == 0) ? d_pnew : d_p, bwavefront);
+            std::cout << "Wavefront: " << bwavefront << " Blocks: " << num_blocks << std::endl;
 
-    //         cudaError_t errSync = cudaGetLastError();
-    //         cudaError_t errAsync = cudaDeviceSynchronize();
-    //         if (errSync != cudaSuccess)
-    //             printf("Sync kernel error: %s\n", cudaGetErrorString(errSync));
-    //         if (errAsync != cudaSuccess)
-    //             printf("Async kernel error: %s\n", cudaGetErrorString(errAsync));
+            // Call the kernel with the number of blocks
+            gauss_seidel_block_wave<<<num_blocks, std::min(blocksize_y, blocksize_x)>>>(nby, nbx, ny, nx, (i % 2 == 0) ? d_p : d_pnew, (i % 2 == 0) ? d_pnew : d_p, bwavefront);
 
-    //     }
+            cudaError_t errSync = cudaGetLastError();
+            cudaError_t errAsync = cudaDeviceSynchronize();
+            if (errSync != cudaSuccess)
+                printf("Sync kernel error: %s\n", cudaGetErrorString(errSync));
+            if (errAsync != cudaSuccess)
+                printf("Async kernel error: %s\n", cudaGetErrorString(errAsync));
+        }
     }
 
     err = cudaMemcpy(p, d_p, ny * nx * sizeof(gtype), cudaMemcpyDeviceToHost);
