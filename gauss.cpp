@@ -73,13 +73,13 @@ void gauss_seidel_block_wave(const T p[ny][nx], T pnew[ny][nx])
 template <typename T, int ny, int nx, int blocksize_y, int blocksize_x>
 void gauss_seidel_block_wave_2(const T p[ny][nx], T pnew[ny][nx])
 {
-    constexpr const int max_wavefront = std::max(blocksize_x, blocksize_y); // No. of blocks in the longest wavefront
-    constexpr const int nbx = nx / blocksize_x;
-    constexpr const int nby = ny / blocksize_y;
 
 #pragma unroll
     for (int bwavefront = 0; bwavefront < nby + nbx - 1; bwavefront++)
     {
+        constexpr const int max_wavefront = std::max(blocksize_x, blocksize_y); // No. of blocks in the longest wavefront
+        constexpr const int nbx = nx / blocksize_x;
+        constexpr const int nby = ny / blocksize_y;
         const int bxmin = std::max(0, bwavefront - (nby - 1));
         const int bxmax = std::min(bwavefront, nbx - 1);
         const auto bx_range = std::views::iota(bxmin, bxmax + 1);
