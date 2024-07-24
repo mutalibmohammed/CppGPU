@@ -1,14 +1,23 @@
 # Compiler and Flags
 CXX := nvc++
-CXXFLAGS := -std=c++23 -stdpar=gpu -gpu=lineinfo -Minfo=all
+CXXFLAGS := -std=c++23 -stdpar=gpu 
 NVCC := nvcc
-NVCCFLAGS := -O3 -std=c++20
+NVCCFLAGS := -std=c++20
+
+DEBUG ?= 1
+ifeq ($(DEBUG), 1)
+    CXXFLAGS += -gpu=lineinfo -Minfo=all
+    NVCCFLAGS += -g -G
+else
+    CXXFLAGS += -O3
+    NVCCFLAGS += -O3
+endif
+
+
 
 # Source and Object Files
 CPP_SRCS := gauss.cpp
-CPP_OBJS := $(addprefix out/,$(CPP_SRCS:.cpp=.o))
 CU_SRCS := gauss.cu
-CU_OBJS := $(addprefix out/,$(CU_SRCS:.cu=_cu.o))
 
 # Output Directory
 OUT_DIR := out
@@ -16,21 +25,14 @@ OUT_DIR := out
 # Targets
 all: gauss gauss_cu
 
-gauss: $(CPP_OBJS)
+gauss: $(CPP_SRCS)
 #	mkdir -p $(OUT_DIR)
 	$(CXX) $(CXXFLAGS) -o $(OUT_DIR)/$@ $^
 
-gauss_cu: $(CU_OBJS)
+gauss_cu: $(CU_SRCS)
 #	mkdir -p $(OUT_DIR)
 	$(NVCC) $(NVCCFLAGS) -o $(OUT_DIR)/$@ $^
 
-out/%.o: %.cpp
-#	mkdir -p $(OUT_DIR)
-	$(CXX) $(CXXFLAGS) -c $< -o $@
-
-out/%_cu.o: %.cu
-#	mkdir -p $(OUT_DIR)
-	$(NVCC) $(NVCCFLAGS) -c $< -o $@
 
 # Phony Targets (for convenience)
 .PHONY: clean
