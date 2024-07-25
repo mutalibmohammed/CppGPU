@@ -1,15 +1,15 @@
 # Compiler and Flags
 CXX := nvc++
-CXXFLAGS := -std=c++23 -stdpar=gpu 
+CXXFLAGS := -std=c++23 -stdpar=gpu -mcmodel=medium 
 NVCC := nvcc
 NVCCFLAGS := -std=c++20
 
 DEBUG ?= 1
 ifeq ($(DEBUG), 1)
-    CXXFLAGS +=  -g -gpu=lineinfo,debug -Minfo=all
+    CXXFLAGS +=  -g -Mbounds -traceback -dwarf -Mchkstk  -gpu=lineinfo,debug  -Minfo=all -cuda
     NVCCFLAGS += -g -G
 else
-    CXXFLAGS += -O3
+    CXXFLAGS += -O3 -Minfo=all
     NVCCFLAGS += -O3
 endif
 

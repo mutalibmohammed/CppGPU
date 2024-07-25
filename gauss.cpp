@@ -4,6 +4,7 @@
 #include <numeric>
 #include <algorithm>
 #include <chrono>
+#include <vector>
 
 template <typename T, int ny, int nx>
 void gauss_seidel(const T p[ny][nx], T pnew[ny][nx]) {
@@ -73,24 +74,36 @@ void gauss_seidel_block_wave(const T p[ny][nx], T pnew[ny][nx])
 template <typename T, int ny, int nx, int blocksize_y, int blocksize_x>
 void gauss_seidel_block_wave_2(const T p[ny][nx], T pnew[ny][nx])
 {
+        constexpr const int max_wavefront = std::max(blocksize_x, blocksize_y); // No. of blocks in the longest wavefront
+        constexpr const int nbx = nx / blocksize_x;
+        constexpr const int nby = ny / blocksize_y;
 
 #pragma unroll
     for (int bwavefront = 0; bwavefront < nby + nbx - 1; bwavefront++)
     {
-        constexpr const int max_wavefront = std::max(blocksize_x, blocksize_y); // No. of blocks in the longest wavefront
-        constexpr const int nbx = nx / blocksize_x;
-        constexpr const int nby = ny / blocksize_y;
         const int bxmin = std::max(0, bwavefront - (nby - 1));
         const int bxmax = std::min(bwavefront, nbx - 1);
         const auto bx_range = std::views::iota(bxmin, bxmax + 1);
         constexpr const auto x_range = std::views::iota(0, max_wavefront);
-        const auto something = std::views::cartesian_product(bx_range, x_range);
+        
+        std::vector<std::pair<int, int>> v {};
+        for (int bx : bx_range)
+        {
+            for (int x : x_range)
+            {
+                v.push_back(std::make_pair(bx, x));
+            }
+        }
+
+
 
 #pragma unroll
         for (int wavefront = 0; wavefront < blocksize_x + blocksize_y - 1; wavefront++)
         {
-            std::for_each(std::execution::par_unseq, something.begin(), something.end(), [=](auto pair)
+            std::for_each(std::execution::par_unseq, v.begin() , v.end(), [=](auto pair)
                           {
+
+                //printf("Do I come here?\n");
                 const int bx = pair.first;
                 const int x = pair.second;
                 const int by = bwavefront - bx;
@@ -105,7 +118,7 @@ void gauss_seidel_block_wave_2(const T p[ny][nx], T pnew[ny][nx])
                     const int starty = by * blocksize_y;
                     const int x_ = startx + x;
                     const int y_ = starty + y;
-                    if (x_ != 0 && x_ != nx - 1 && y_ != 0 && y_ != ny - 1)
+                    if (x_ > 0 && x_ < nx - 1 && y_ > 0 && y_ < ny - 1)
                         pnew[y_][x_] = 0.25 * (pnew[y_ - 1][x_] + pnew[y_][x_ - 1] + p[y_ + 1][x_] + p[y_][x_ + 1]);
                 } });
         }
@@ -125,7 +138,7 @@ int main()
 
     using type = double;
 
-    constexpr const int n = 2;
+    constexpr const int n = 10000;
     constexpr const int nx = 1024;
     constexpr const int ny = 1024;
     constexpr const int blocksize_y = 32;
@@ -159,23 +172,23 @@ int main()
     for (int it = 0; it < n; it++)
     {
         // gauss_seidel<type, ny, nx>(p, pnew);
-        // gauss_seidel<type, ny, nx>(p, pnew);
-        gauss_seidel_block_wave_2<type, ny, nx, blocksize_y, blocksize_x>(p, pnew);
+        gauss_seidel_wave<type, ny, nx>(p, pnew);
+        //gauss_seidel_block_wave_2<type, ny, nx, blocksize_y, blocksize_x>(p, pnew);
         swap_pointer<type, nx>(&p, &pnew);
     }
 
     std::chrono::high_resolution_clock::time_point end = std::chrono::high_resolution_clock::now();
 
-    type sum = 0.;
-    for (int y = 0; y < ny; y++)
-    {
-        for (int x = 0; x < nx; x++)
-        {
-            sum += p[y][x];
-        }
-    }
+    // type sum = 0.;
+    // for (int y = 0; y < ny; y++)
+    // {
+    //     for (int x = 0; x < nx; x++)
+    //     {
+    //         sum += p[y][x];
+    //     }
+    // }
 
-    std::cout << "Sum: " << sum << std::endl;
+    //std::cout << "Sum: " << sum << std::endl;
     std::cout << "Time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms" << std::endl;
 
     delete[] p;
