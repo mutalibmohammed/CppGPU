@@ -133,9 +133,18 @@ void swap_pointer(T (**ptr1)[nx], T (**ptr2)[nx])
     *ptr2 = temp;
 }
 
+template <typename T, int ny, int nx>
+void initialization(T p[ny][nx])
+{
+    for (int y = 0; y < ny; y++)
+    {
+        std::for_each_n(std::execution::par_unseq, std::views::iota(0), nx, [](int x)
+                        { p[y][x] = 0.0; });
+    }
+}
+
 int main()
 {
-
     using type = double;
 
     constexpr const int n = 10000;
@@ -147,8 +156,11 @@ int main()
     static_assert(ny % blocksize_y == 0, "ny must be divisible by blocksize");
     static_assert(nx % blocksize_x == 0, "nx must be divisible by blocksize");
 
-    auto p = new type[ny][nx]();
-    auto pnew = new type[ny][nx]();
+    auto p = new type[ny][nx];
+    auto pnew = new type[ny][nx];
+
+    initialization<type, ny, nx>(p);
+    initialization<type, ny, nx>(pnew);
 
     // Dirichlet boundary conditions
     for (int y = 0; y < ny; y++)
