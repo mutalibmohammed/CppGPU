@@ -5,16 +5,21 @@
 #include <algorithm>
 #include <chrono>
 #include <vector>
+#include <cassert>
+#include <experimental/mdspan>
+
+template <typename T>
+using grid_t = std::experimental::mdspan<T, std::experimental::dextents<unsigned long, 2>>;
 
 template <typename T, int ny, int nx>
-void gauss_seidel(const T p[ny][nx], T pnew[ny][nx]) {
+void gauss_seidel(const T p[ny][nx], T pnew[ny][nx])
+{
     for (const int &y : std::views::iota(1, ny - 1)) {
         for (const int &x : std::views::iota(1, nx - 1)) {
             pnew[y][x] = 0.25 * (pnew[y-1][x] + pnew[y][x-1] + p[y + 1][x] + p[y][x + 1]);
         }
     }
 }
-
 
 template <typename T, int ny, int nx>
 void gauss_seidel_wave(const T p[ny][nx], T pnew[ny][nx])
@@ -34,40 +39,41 @@ void gauss_seidel_wave(const T p[ny][nx], T pnew[ny][nx])
     }
 }
 
-template <typename T, int ny, int nx, int blocksize_y, int blocksize_x>
-void gauss_seidel_block_wave(const T p[ny][nx], T pnew[ny][nx])
+template <typename T, unsigned blocksize_y, unsigned blocksize_x>
+void gauss_seidel_block_wave(const grid_t<T> p, grid_t<T> pnew, size_t ny, size_t nx)
 {
 
-    constexpr const int nbx = nx / blocksize_x;
-    constexpr const int nby = ny / blocksize_y;
+    const unsigned nbx = nx / blocksize_x;
+    const unsigned nby = ny / blocksize_y;
 
-    for (int bwavefront = 0; bwavefront < nby + nbx - 1; bwavefront++)
+    for (unsigned bwavefront = 0; bwavefront < nby + nbx - 1; bwavefront++)
     {
-        int bxmin = std::max(0, bwavefront - (nby - 1));
-        int bxmax = std::min(bwavefront, nbx - 1);
+        unsigned bxmin = std::max(0U, bwavefront - (nby - 1));
+        unsigned bxmax = std::min(bwavefront, nbx - 1);
 
         const auto bx_range = std::views::iota(bxmin, bxmax + 1);
-        std::for_each(std::execution::par_unseq, bx_range.begin(), bx_range.end(), [=](int bx)
-                      {
-                int by = bwavefront - bx;
-                 
-                 int startx = bx * blocksize_x;
-                 int starty = by * blocksize_y;
+        std::for_each_n(std::execution::par_unseq, bx_range.begin(), bx_range.size(), [=](auto bx)
+                        {
+                unsigned by = bwavefront - bx;
 
-                 for(int wavefront = 0; wavefront < blocksize_x + blocksize_y - 1; wavefront++) {
+                unsigned startx = bx * blocksize_x;
+                unsigned starty = by * blocksize_y;
 
-                     int xmin = std::max(0, wavefront - (blocksize_y - 1));
-                     int xmax = std::min(wavefront, blocksize_x - 1);
+                for (unsigned wavefront = 0; wavefront < blocksize_x + blocksize_y - 1; wavefront++)
+                {
 
-                     const auto x_range = std::views::iota(xmin, xmax + 1);
-                     std::for_each(std::execution::unseq, x_range.begin(), x_range.end(), [=](int x)
-                                   {
-                        int y = wavefront - x;
+                    unsigned xmin = std::max(0U, wavefront - (blocksize_y - 1));
+                    unsigned xmax = std::min(wavefront, blocksize_x - 1);
+
+                    const auto x_range = std::views::iota(xmin, xmax + 1);
+                    std::for_each_n(std::execution::unseq, x_range.begin(), x_range.size(), [=](auto x)
+                                    {
+                        unsigned y = wavefront - x;
                         y = starty + y;
                         x = startx + x;
                         if(x != 0 && x != nx-1 && y != 0 && y != ny-1)
-                            pnew[y][x] = 0.25 * (pnew[y-1][x] + pnew[y][x-1] + p[y + 1][x] + p[y][x + 1]); });
-                 } });
+                            pnew(y, x) = 0.25 * (pnew(y-1, x) + pnew(y, x-1) + p(y + 1, x) + p(y, x + 1)); });
+                } });
     }
 }
 
@@ -103,7 +109,6 @@ void gauss_seidel_block_wave_2(const T p[ny][nx], T pnew[ny][nx])
             std::for_each(std::execution::par_unseq, v.begin() , v.end(), [=](auto pair)
                           {
 
-                //printf("Do I come here?\n");
                 const int bx = pair.first;
                 const int x = pair.second;
                 const int by = bwavefront - bx;
@@ -125,68 +130,82 @@ void gauss_seidel_block_wave_2(const T p[ny][nx], T pnew[ny][nx])
     }
 }
 
-template <typename T, int nx>
-void swap_pointer(T (**ptr1)[nx], T (**ptr2)[nx])
+// template <typename T, int nx>
+// void swap_pointer(T (**ptr1)[nx], T (**ptr2)[nx])
+// {
+//     auto temp = *ptr1;
+//     *ptr1 = *ptr2;
+//     *ptr2 = temp;
+// }
+
+template <typename T>
+void initialization(std::experimental::mdspan<T, std::experimental::dextents<unsigned long, 2>> p)
 {
-    auto temp = *ptr1;
-    *ptr1 = *ptr2;
-    *ptr2 = temp;
+    std::fill_n(std::execution::par_unseq, p.data_handle(), p.size(), 0.);
 }
 
-template <typename T, int ny, int nx>
-void initialization(T p[ny][nx])
+int main(int argc, char **argv)
 {
-    for (int y = 0; y < ny; y++)
+    if (argc != 3)
     {
-        std::for_each_n(std::execution::par_unseq, std::views::iota(0), nx, [](int x)
-                        { p[y][x] = 0.0; });
+        std::cerr << "Error incorrect arguments" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <ny> <nx> <iterations>" << std::endl;
+        std::terminate();
     }
-}
 
-int main()
-{
     using type = double;
 
-    constexpr const int n = 10000;
-    constexpr const int nx = 1024;
-    constexpr const int ny = 1024;
-    constexpr const int blocksize_y = 32;
-    constexpr const int blocksize_x = 32;
+    const unsigned long ny = std::stoul(argv[1]);
+    const unsigned long nx = std::stoul(argv[2]);
+    const unsigned long n = std::stoul(argv[3]);
+    constexpr const unsigned blocksize_y = 32;
+    constexpr const unsigned blocksize_x = 32;
 
-    static_assert(ny % blocksize_y == 0, "ny must be divisible by blocksize");
-    static_assert(nx % blocksize_x == 0, "nx must be divisible by blocksize");
+    assert((ny % blocksize_y == 0, "ny must be divisible by blocksize"));
+    assert((nx % blocksize_x == 0, "nx must be divisible by blocksize"));
 
-    auto p = new type[ny][nx];
-    auto pnew = new type[ny][nx];
+    std::vector<type> p_data(ny * nx), pnew_data(ny * nx);
 
-    initialization<type, ny, nx>(p);
-    initialization<type, ny, nx>(pnew);
+    std::experimental::mdspan p{p_data.data(), ny, nx};
+    std::experimental::mdspan pnew{pnew_data.data(), ny, nx};
+
+    // auto p = new type[ny][nx];
+    // auto pnew = new type[ny][nx];
+
+    initialization<type>(p);
+    initialization<type>(pnew);
 
     // Dirichlet boundary conditions
-    for (int y = 0; y < ny; y++)
-    {
-        p[y][0] = 10;
-        pnew[y][0] = 10;
-        p[y][nx - 1] = 10;
-        pnew[y][nx - 1] = 10;
-    }
+    std::for_each_n(std::execution::par_unseq, std::views::iota(0).begin(), ny, [=](auto y)
+                    { 
+        p(y, 0) = 10;
+        pnew(y, 0) = 10;
+        p(y, nx - 1) = 10;
+        pnew(y, nx - 1) = 10; });
 
-    for (int x = 0; x < nx; x++)
-    {
-        p[0][x] = 10;
-        pnew[0][x] = 10;
-        p[ny - 1][x] = 10;
-        pnew[ny - 1][x] = 10;
-    }
+    std::for_each_n(std::execution::par_unseq, std::views::iota(0).begin(), nx, [=](auto x)
+                    {  
+        p(0, x) = 10;
+        pnew(0, x) = 10;
+        p(ny - 1, x) = 10;
+        pnew(ny - 1, x) = 10; });
+
+    // for (int x = 0; x < nx; x++)
+    // {
+    //     p[0][x] = 10;
+    //     pnew[0][x] = 10;
+    //     p[ny - 1][x] = 10;
+    //     pnew[ny - 1][x] = 10;
+    // }
 
     std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
 
-    for (int it = 0; it < n; it++)
+    for (size_t it = 0; it < n; it++)
     {
         // gauss_seidel<type, ny, nx>(p, pnew);
-        gauss_seidel_wave<type, ny, nx>(p, pnew);
-        //gauss_seidel_block_wave_2<type, ny, nx, blocksize_y, blocksize_x>(p, pnew);
-        swap_pointer<type, nx>(&p, &pnew);
+        gauss_seidel_block_wave<type, blocksize_y, blocksize_x>(p, pnew, ny, nx);
+        // gauss_seidel_block_wave_2<type, ny, nx, blocksize_y, blocksize_x>(p, pnew);
+        std::swap(p, pnew);
     }
 
     std::chrono::high_resolution_clock::time_point end = std::chrono::high_resolution_clock::now();
@@ -203,8 +222,8 @@ int main()
     //std::cout << "Sum: " << sum << std::endl;
     std::cout << "Time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms" << std::endl;
 
-    delete[] p;
-    delete[] pnew;
+    // delete[] p;
+    // delete[] pnew;
     return 0;
 }
 
