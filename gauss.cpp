@@ -72,7 +72,6 @@ void gauss_seidel_block_wave(const grid<T> p, grid<T> pnew)
         const auto bx_range = std::views::iota(bxmin, bxmax + 1);
         std::for_each_n(std::execution::par_unseq, bx_range.begin(), bx_range.size(), [=](auto bx)
                         {
-                // printf("DEBUG: bx: %d\n", bx);
                 int by = bwavefront - bx;
 
                 int startx = bx * blocksize_x;
@@ -105,28 +104,15 @@ void gauss_seidel_block_wave_2(const grid<T> p, grid<T> pnew)
     for (int bwavefront = 0; bwavefront < nby + nbx - 1; bwavefront++)
     {
         const auto [bxmin, bxmax] = wavefront_coordinates(nby, nbx, bwavefront, 0);
-
         const auto bx_range = std::views::iota(bxmin, bxmax + 1);
         constexpr const auto x_range = std::views::iota(0, max_wavefront);
-
-        // TODO: use cartesian product
-        std::vector<std::pair<int, int>> v{};
-        for (auto bx : bx_range)
-        {
-            for (auto x : x_range)
-            {
-                v.push_back(std::make_pair(bx, x));
-            }
-        }
-
+        auto idxs = std::views::cartesian_product(bx_range, x_range);
 #pragma unroll
         for (int wavefront = 0; wavefront < blocksize_x + blocksize_y - 1; wavefront++)
         {
-            std::for_each(std::execution::par_unseq, v.begin(), v.end(), [=](auto pair)
-                          {
-
-                const auto bx = pair.first;
-                const auto x = pair.second;
+            std::for_each(std::execution::par_unseq, idxs.begin(), idxs.end(), [=](auto pair)
+                          { 
+                const auto [bx, x] = pair;
                 const auto by = bwavefront - bx;
                 const uint boundary = (bx == nbx - 1) << 3 | (by == nby - 1) << 2 | (by == 0) << 1 | (bx == 0);
                 const auto [xmin, xmax] = wavefront_coordinates(blocksize_y, blocksize_x, wavefront, boundary);
