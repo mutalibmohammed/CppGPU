@@ -1,15 +1,15 @@
 # Compiler and Flags
 CXX := nvc++
-CXXFLAGS := -std=c++23 -stdpar=gpu --experimental-stdpar -mcmodel=medium 
+CXXFLAGS := -std=c++20 -stdpar=gpu --experimental-stdpar -mcmodel=medium -Iinclude
 NVCC := nvcc
 NVCCFLAGS := -std=c++20
 
 DEBUG ?= 1
 ifeq ($(DEBUG), 1)
-    CXXFLAGS += -g -traceback -dwarf -Mchkstk -gpu=lineinfo,debug  -Minfo=all 
+    CXXFLAGS += -g -traceback -dwarf -Mchkstk -gpu=lineinfo,debug -DNDEBUG -Minfo=all 
     NVCCFLAGS += -g -G
 else
-    CXXFLAGS += -O3 -Minfo=all
+    CXXFLAGS += -Ofast -Minfo=accel
     NVCCFLAGS += -O3
 endif
 
