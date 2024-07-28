@@ -97,6 +97,7 @@ void gauss_seidel_block_wave_2(const grid<T> p, grid<T> pnew)
 {
     const int ny = p.extent(0), nx = p.extent(1);
     constexpr const int max_wavefront = std::max(blocksize_x, blocksize_y); // No. of blocks in the longest wavefront
+    constexpr const auto x_range = std::views::iota(0, max_wavefront);
     const int nbx = nx / blocksize_x;
     const int nby = ny / blocksize_y;
 
@@ -105,7 +106,6 @@ void gauss_seidel_block_wave_2(const grid<T> p, grid<T> pnew)
     {
         const auto [bxmin, bxmax] = wavefront_coordinates(nby, nbx, bwavefront, 0);
         const auto bx_range = std::views::iota(bxmin, bxmax + 1);
-        constexpr const auto x_range = std::views::iota(0, max_wavefront);
         auto idxs = std::views::cartesian_product(bx_range, x_range);
 #pragma unroll
         for (int wavefront = 0; wavefront < blocksize_x + blocksize_y - 1; wavefront++)

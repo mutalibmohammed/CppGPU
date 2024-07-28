@@ -9,7 +9,7 @@ ifeq ($(DEBUG), 1)
     CXXFLAGS += -g -traceback -dwarf -Mchkstk -gpu=lineinfo,debug -DNDEBUG -Minfo=all 
     NVCCFLAGS += -g -G
 else
-    CXXFLAGS += -Ofast -Minfo=accel
+    CXXFLAGS += -Ofast -Minfo=stdpar
     NVCCFLAGS += -O3
 endif
 
