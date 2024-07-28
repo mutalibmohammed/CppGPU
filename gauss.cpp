@@ -64,20 +64,30 @@ void gauss_seidel_block_wave(const grid<T> p, grid<T> pnew)
     const int nbx = nx / blocksize_x;
     const int nby = ny / blocksize_y;
 
+    // printf("nbx: %d, nby: %d\n", nbx, nby);
+
     for (int bwavefront = 0; bwavefront < nby + nbx - 1; bwavefront++)
     {
 
         const auto [bxmin, bxmax] = wavefront_coordinates(nby, nbx, bwavefront, 0);
 
         const auto bx_range = std::views::iota(bxmin, bxmax + 1);
-        std::for_each_n(std::execution::par_unseq, bx_range.begin(), bx_range.size(), [=](auto bx)
-                        {
+        // printf("bxmin: %d, bxmax: %d, bwavefront: %d, size: %d\n", bxmin, bxmax, bwavefront, bx_range.size());
+
+        std::for_each(std::execution::par_unseq, bx_range.begin(), bx_range.end(), [=](auto bx)
+                      {
+                // printf("bwavefront: %d\n", bwavefront);
+                // printf("===bx: %d\n", bx);
                 int by = bwavefront - bx;
 
                 int startx = bx * blocksize_x;
                 int starty = by * blocksize_y;
 
-                const uint boundary = (bx == nbx - 1) << 3 | (by == nby - 1) << 2 | (by == 0) << 1 | (bx == 0);
+                // printf("bwavefront: %d, bx: %d, by: %d, startx: %d, starty: %d\n", bwavefront, bx, by, startx, starty);
+
+                const uint boundary = (by == (nby - 1)) << 3 | (bx == (nbx - 1)) << 2 | (by == 0) << 1 | (bx == 0);
+
+                // printf("=== bwavefront: %d, boundary: %u, bx: %d, by: %d\n", bwavefront, boundary, bx, by);
 
                 for (int wavefront = 0; wavefront < blocksize_x + blocksize_y - 1; wavefront++)
                 {
@@ -85,8 +95,13 @@ void gauss_seidel_block_wave(const grid<T> p, grid<T> pnew)
                     std::ranges::for_each(std::views::iota(xmin, xmax + 1), [=](auto x)
                                           {
                         int y = wavefront - x;
+                        // printf("wavefront: %d, x: %d, y: %d\n", wavefront, x, y);
                         y = starty + y;
                         x = startx + x;
+
+                        // printf("wavefront: %d, x: %d, y: %d\n", wavefront, x, y);
+                        // if (x < 1 || x >= nx - 1 || y >= 1 && y < ny - 1)
+                        //     pnew(y, x) = 0.25 * (pnew(y - 1, x) + pnew(y, x - 1) + p(y + 1, x) + p(y, x + 1));
                         pnew(y, x) = 0.25 * (pnew(y - 1, x) + pnew(y, x - 1) + p(y + 1, x) + p(y, x + 1)); });
                 } });
     }
@@ -114,7 +129,7 @@ void gauss_seidel_block_wave_2(const grid<T> p, grid<T> pnew)
                           { 
                 const auto [bx, x] = pair;
                 const auto by = bwavefront - bx;
-                const uint boundary = (bx == nbx - 1) << 3 | (by == nby - 1) << 2 | (by == 0) << 1 | (bx == 0);
+                const uint boundary = (by == (nby - 1)) << 3 | (bx == (nbx - 1)) << 2 | (by == 0) << 1 | (bx == 0);
                 const auto [xmin, xmax] = wavefront_coordinates(blocksize_y, blocksize_x, wavefront, boundary);
 
                 if (x >= xmin && x <= xmax)
@@ -159,7 +174,10 @@ inline void runAndTimeGaussSeidel(grid<T> &p, grid<T> &pnew, int n, Function gau
     }
     auto end = std::chrono::high_resolution_clock::now();
 
-    std::cout << name << ": " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms" << std::endl;
+    auto grid_size = static_cast<double>(p.size() * sizeof(T) * 2) * 1e-9;                                    // GB
+    auto memory_bw = grid_size * static_cast<double>(n) / std::chrono::duration<double>(end - start).count(); // GB/s
+
+    std::cout << name << ": " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms  " << memory_bw << " GB/s\n";
 }
 
 int main(int argc, char **argv)
