@@ -18,6 +18,7 @@ endif
 # Source and Object Files
 CPP_SRCS := gauss.cpp
 CU_SRCS := gauss.cu
+SEN_SRCS := gauss_sender.cpp
 
 # Output Directory
 OUT_DIR := out
@@ -32,6 +33,8 @@ gauss: $(CPP_SRCS)
 gauss_cu: $(CU_SRCS)
 #	mkdir -p $(OUT_DIR)
 	$(NVCC) $(NVCCFLAGS) -o $(OUT_DIR)/$@ $^
+
+gauss_sender: $(SEN_SRCS)
 
 
 # Phony Targets (for convenience)
