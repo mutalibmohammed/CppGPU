@@ -85,6 +85,8 @@ int main(int argc, char **argv)
     *wavefront     = 0;
 
     int nwavefronts = ny + nx - 1;
+
+#pragma unroll
     for (size_t it = 0; it < n; it++) {
         auto work =
             stdexec::just() |
@@ -119,12 +121,12 @@ int main(int argc, char **argv)
         std::swap(p_data, pnew_data);
     }
 
-    for (int y = 0; y < ny; y++) {
-        for (int x = 0; x < nx; x++) {
-            std::printf("%2.3f  ", p_data[y * nx + x]);
-        }
-        std::cout << '\n';
-    }
+    // for (int y = 0; y < ny; y++) {
+    //     for (int x = 0; x < nx; x++) {
+    //         std::printf("%2.3f  ", p_data[y * nx + x]);
+    //     }
+    //     std::cout << '\n';
+    // }
 
     type sum = 0.f;
     for (int i = 0; i < ny * nx; i++) {
