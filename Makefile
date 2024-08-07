@@ -1,6 +1,6 @@
 # Compiler and Flags
 CXX := nvc++
-CXXFLAGS := -std=c++20 -stdpar=gpu --experimental-stdpar -mcmodel=medium -Iinclude
+CXXFLAGS := -std=c++20 -stdpar=gpu  -mcmodel=medium -Iinclude -Istdexec/include/
 NVCC := nvcc
 NVCCFLAGS := -std=c++20
 
@@ -26,6 +26,10 @@ OUT_DIR := out
 # Targets
 all: gauss gauss_cu
 
+gauss_sender: $(SEN_SRCS)
+#	mkdir -p $(OUT_DIR)
+	$(CXX) $(CXXFLAGS) -o $(OUT_DIR)/$@ $^
+
 gauss: $(CPP_SRCS)
 #	mkdir -p $(OUT_DIR)
 	$(CXX) $(CXXFLAGS) -o $(OUT_DIR)/$@ $^
@@ -34,8 +38,8 @@ gauss_cu: $(CU_SRCS)
 #	mkdir -p $(OUT_DIR)
 	$(NVCC) $(NVCCFLAGS) -o $(OUT_DIR)/$@ $^
 
-gauss_sender: $(SEN_SRCS)
 
+  
 
 # Phony Targets (for convenience)
 .PHONY: clean

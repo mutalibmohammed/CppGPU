@@ -1,52 +1,93 @@
-#include <stdexec/execution.hpp>
-#include <exec/on.hpp>
-#include <exec/static_thread_pool.hpp>
-#include <nvexec/stream_context.cuh>
+#include "stdexec/execution.hpp"
+#include "exec/on.hpp"
+#include "exec/static_thread_pool.hpp"
+#include "nvexec/stream_context.cuh"
+#include "exec/repeat_n.hpp"
 #include <vector>
+#include <algorithm>
+#include <iostream>
 
-int main()
+template <typename T>
+constexpr std::pair<T, T> wavefront_coordinates(T ny, T nx, T wavefront, uint boundary)
 {
-    // Declare a pool of 8 worker CPU threads:
-    exec::static_thread_pool pool(8);
+    int left = boundary & 1;
+    int top = (boundary >> 1) & 1;
+    int right = (boundary >> 2) & 1;
+    int bottom = (boundary >> 3) & 1;
+
+    T xmin = std::max(left, wavefront - ((ny - 1 - bottom)));
+    T xmax = std::min(wavefront - top, nx - 1 - right);
+    return {xmin, xmax >= xmin ? xmax : xmin - 1};
+}
+
+int main(int argc, char **argv)
+{
+    if (argc != 4)
+    {
+        std::cerr << "Error incorrect arguments" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <ny> <nx> <iterations>" << std::endl;
+        return 1;
+    }
+
+    using type = double;
+
+    const int ny = std::stoi(argv[1]);
+    const int nx = std::stoi(argv[2]);
+    const int n = std::stoi(argv[3]);
+
+    std::vector<type> p_data(ny * nx), pnew_data(ny * nx);
+
+    // grid<type> p(p_data.data(), ny, nx);
+    // grid<type> pnew(pnew_data.data(), ny, nx);
+
+    // initialization(p);
+    // initialization(pnew);
 
     // Declare a GPU stream context:
     nvexec::stream_context stream_ctx{};
 
-    // Get a handle to the thread pool:
-    auto cpu_sched = pool.get_scheduler();
+    // Get the GPU scheduler:
     auto gpu_sched = stream_ctx.get_scheduler();
 
-    // Declare three dynamic array with N elements
-    std::size_t N = 5;
-    std::vector<int> v0{1, 1, 1, 1, 1};
-    std::vector<int> v1{2, 2, 2, 2, 2};
-    std::vector<int> v2{0, 0, 0, 0, 0};
+    stdexec::sync_wait(stdexec::when_all(
+        stdexec::just() | exec::on(gpu_sched, stdexec::bulk(ny * nx, [p_data = p_data.data(), ny, nx](std::size_t i)
+                                                            { p_data[i] = 1.0; })),
+        stdexec::just() | exec::on(gpu_sched, stdexec::bulk(ny * nx, [pnew_data = pnew_data.data(), ny, nx](std::size_t i)
+                                                            { pnew_data[i] = 1.0; }))));
 
+    // TODO reduction
     // Describe some work:
-    auto work = stdexec::when_all(
-                    // Double v0 on the CPU
-                    stdexec::just() | exec::on(cpu_sched, stdexec::bulk(N, [v0 = v0.data()](std::size_t i)
-                                                                        { v0[i] *= 2; })),
-                    // Triple v1 on the GPU
-                    stdexec::just() | exec::on(gpu_sched, stdexec::bulk(N, [v1 = v1.data()](std::size_t i)
-                                                                        { v1[i] *= 3; }))) |
-                stdexec::transfer(cpu_sched)
-                // Add the two vectors into the output vector v2 = v0 + v1:
-                | stdexec::bulk(N, [&](std::size_t i)
-                                { v2[i] = v0[i] + v1[i]; }) |
-                stdexec::then([&]
-                              { 
-        int r = 0;
-        for (std::size_t i = 0; i < N; ++i) r += v2[i];
-        return r; });
 
-        auto [sum] = stdexec::sync_wait(work).value();
-
-    // Print the results:
-    std::printf("sum = %d\n", sum);
-    for (int i = 0; i < N; ++i)
+    int nwavefronts = ny + nx - 1;
+    for (size_t it = 0; it < n; it++)
     {
-        std::printf("v0[%d] = %d, v1[%d] = %d, v2[%d] = %d\n", i, v0[i], i, v1[i], i, v2[i]);
+        int *wavefront = new int;
+        *wavefront = 0;
+
+        auto work = stdexec::just() | exec::on(gpu_sched, stdexec::bulk(ny * nx, [pnew_data = pnew_data.data(), p_data = p_data.data(), ny, nx, wavefront](std::size_t i)
+                                                                        {
+        auto [xmin, xmax] = wavefront_coordinates(ny, nx, *wavefront, 0b1111);
+        int ymin = *wavefront - xmin;
+        int ymax = *wavefront - xmax;
+
+        if (i >= ymin * nx + xmin && i <= ymax * nx + xmax)
+        {
+            pnew_data[i] = 0.25 * (pnew_data[i - nx] + pnew_data[i - 1] + p_data[i + nx] + p_data[i + 1]);
+        } 
+        *wavefront += 1; })) |
+                    exec::repeat_n(nwavefronts);
+        stdexec::sync_wait(std::move(work));
+
+        printf("wavefront: %d\n", *wavefront);
+        delete wavefront;
     }
+
+    type sum = 0.f;
+    for (int i = 0; i < ny * nx; i++)
+    {
+        sum += pnew_data[i];
+    }
+
+    std::cout << "Sum: " << sum << std::endl;
     return 0;
 }
