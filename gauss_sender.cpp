@@ -37,66 +37,71 @@ int main(int argc, char **argv)
 
     std::vector<type> p_data(ny * nx), pnew_data(ny * nx);
 
-    // grid<type> p(p_data.data(), ny, nx);
-    // grid<type> pnew(pnew_data.data(), ny, nx);
-
-    // initialization(p);
-    // initialization(pnew);
-
     // Declare a GPU stream context:
     nvexec::stream_context stream_ctx{};
 
     // Get the GPU scheduler:
     auto gpu_sched = stream_ctx.get_scheduler();
 
-    stdexec::sync_wait(stdexec::when_all(
-        stdexec::just() | exec::on(gpu_sched, stdexec::bulk(ny * nx, [p_data = p_data.data(), ny, nx](std::size_t i)
-                                                            { p_data[i] = 1.0; })),
-        stdexec::just() | exec::on(gpu_sched, stdexec::bulk(ny * nx, [pnew_data = pnew_data.data(), ny, nx](std::size_t i)
-                                                            { pnew_data[i] = 1.0; }))));
+    // Initialize the data:
+    stdexec::sync_wait(
+        stdexec::just() |
+        exec::on(gpu_sched,
+                 stdexec::bulk(
+                     ny * nx,
+                     [p_data = p_data.data(), pnew_data = pnew_data.data(), ny, nx](std::size_t i) {
+                         p_data[i]    = 0.0;
+                         pnew_data[i] = 0.0;
+                     }) |
 
-    // TODO reduction
-    // Describe some work:
+                     stdexec::bulk(ny,
+                                   [p_data = p_data.data(), pnew_data = pnew_data.data(), ny,
+                                    nx](std::size_t i) {
+                                       p_data[i * nx]             = 10.f;
+                                       p_data[i * nx + nx - 1]    = 10.f;
+                                       pnew_data[i * nx]          = 10.f;
+                                       pnew_data[i * nx + nx - 1] = 10.f;
+                                   }) |
+                     stdexec::bulk(nx, [p_data = p_data.data(), pnew_data = pnew_data.data(), ny,
+                                        nx](std::size_t i) {
+                         p_data[i]                    = 10.f;
+                         p_data[(ny - 1) * nx + i]    = 10.f;
+                         pnew_data[i]                 = 10.f;
+                         pnew_data[(ny - 1) * nx + i] = 10.f;
+                     })));
 
     int *wavefront = new int;
     *wavefront     = 0;
 
     int nwavefronts = ny + nx - 1;
-    for (size_t it = 0; it < n; it++)
-    {
-
+    for (size_t it = 0; it < n; it++) {
         auto work =
             stdexec::just() |
-            exec::on(
-                gpu_sched,
-                stdexec::bulk(
-                    ny * nx,
-                    [pnew_data = pnew_data.data(), p_data = p_data.data(), ny,
-                     nx, wavefront](std::size_t i)
-                    {
-                        auto [xmin, xmax] =
-                            wavefront_coordinates(ny, nx, *wavefront, 0b1111);
-                        int ymin = *wavefront - xmin;
-                        int ymax = *wavefront - xmax;
+            exec::on(gpu_sched,
+                     stdexec::bulk(ny * nx,
+                                   [pnew_data = (it & 1) ? p_data.data() : pnew_data.data(),
+                                    p_data    = (it & 1) ? pnew_data.data() : p_data.data(), ny, nx,
+                                    it, wavefront](std::size_t i) {
+                                       auto [xmin, xmax] =
+                                           wavefront_coordinates(ny, nx, *wavefront, 0b1111);
+                                       int ymin = *wavefront - xmin;
+                                       int ymax = *wavefront - xmax;
 
-                        if (i >= ymin * nx + xmin && i <= ymax * nx + xmax)
-                        {
-                            pnew_data[i] =
-                                0.25 * (pnew_data[i - nx] + pnew_data[i - 1] +
-                                        p_data[i + nx] + p_data[i + 1]);
-                        }
-                        std::printf("wavefront: %d\n", *wavefront);
-                    }) |
+                                       if (i >= ymin * nx + xmin && i <= ymax * nx + xmax) {
+                                           pnew_data[i] =
+                                               0.25 * (pnew_data[i - nx] + pnew_data[i - 1] +
+                                                       p_data[i + nx] + p_data[i + 1]);
+                                       }
+                                   }) |
 
-                    stdexec::then([wavefront]() { *wavefront += 1; })) |
+                         stdexec::then([wavefront]() { *wavefront += 1; })) |
             exec::repeat_n(nwavefronts);
         stdexec::sync_wait(std::move(work));
         *wavefront = 0;
     }
 
     type sum = 0.f;
-    for (int i = 0; i < ny * nx; i++)
-    {
+    for (int i = 0; i < ny * nx; i++) {
         sum += pnew_data[i];
     }
 
