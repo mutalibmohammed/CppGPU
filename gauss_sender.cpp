@@ -58,28 +58,40 @@ int main(int argc, char **argv)
     // TODO reduction
     // Describe some work:
 
+    int *wavefront = new int;
+    *wavefront     = 0;
+
     int nwavefronts = ny + nx - 1;
     for (size_t it = 0; it < n; it++)
     {
-        int *wavefront = new int;
-        *wavefront = 0;
 
-        auto work = stdexec::just() | exec::on(gpu_sched, stdexec::bulk(ny * nx, [pnew_data = pnew_data.data(), p_data = p_data.data(), ny, nx, wavefront](std::size_t i)
-                                                                        {
-        auto [xmin, xmax] = wavefront_coordinates(ny, nx, *wavefront, 0b1111);
-        int ymin = *wavefront - xmin;
-        int ymax = *wavefront - xmax;
+        auto work =
+            stdexec::just() |
+            exec::on(
+                gpu_sched,
+                stdexec::bulk(
+                    ny * nx,
+                    [pnew_data = pnew_data.data(), p_data = p_data.data(), ny,
+                     nx, wavefront](std::size_t i)
+                    {
+                        auto [xmin, xmax] =
+                            wavefront_coordinates(ny, nx, *wavefront, 0b1111);
+                        int ymin = *wavefront - xmin;
+                        int ymax = *wavefront - xmax;
 
-        if (i >= ymin * nx + xmin && i <= ymax * nx + xmax)
-        {
-            pnew_data[i] = 0.25 * (pnew_data[i - nx] + pnew_data[i - 1] + p_data[i + nx] + p_data[i + 1]);
-        } 
-        *wavefront += 1; })) |
-                    exec::repeat_n(nwavefronts);
+                        if (i >= ymin * nx + xmin && i <= ymax * nx + xmax)
+                        {
+                            pnew_data[i] =
+                                0.25 * (pnew_data[i - nx] + pnew_data[i - 1] +
+                                        p_data[i + nx] + p_data[i + 1]);
+                        }
+                        std::printf("wavefront: %d\n", *wavefront);
+                    }) |
+
+                    stdexec::then([wavefront]() { *wavefront += 1; })) |
+            exec::repeat_n(nwavefronts);
         stdexec::sync_wait(std::move(work));
-
-        printf("wavefront: %d\n", *wavefront);
-        delete wavefront;
+        *wavefront = 0;
     }
 
     type sum = 0.f;
