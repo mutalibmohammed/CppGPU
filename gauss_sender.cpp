@@ -79,8 +79,7 @@ int main(int argc, char **argv)
             stdexec::just() |
             exec::on(gpu_sched,
                      stdexec::bulk(ny * nx,
-                                   [pnew_data = (it & 1) ? p_data.data() : pnew_data.data(),
-                                    p_data    = (it & 1) ? pnew_data.data() : p_data.data(), ny, nx,
+                                   [pnew_data = pnew_data.data(), p_data = p_data.data(), ny, nx,
                                     it, wavefront](std::size_t i) {
                                        auto [xmin, xmax] =
                                            wavefront_coordinates(ny, nx, *wavefront, 0b1111);
@@ -95,9 +94,9 @@ int main(int argc, char **argv)
                                    }) |
 
                          stdexec::then([wavefront]() { *wavefront += 1; })) |
-            exec::repeat_n(nwavefronts);
+            exec::repeat_n(nwavefronts) | stdexec::then([wavefront]() { *wavefront = 0; });
         stdexec::sync_wait(std::move(work));
-        *wavefront = 0;
+        std::swap(p_data, pnew_data);
     }
 
     type sum = 0.f;
