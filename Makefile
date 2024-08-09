@@ -2,14 +2,14 @@
 CXX := nvc++
 CXXFLAGS := -std=c++20 -stdpar=gpu  -mcmodel=medium -Iinclude -Istdexec/include/
 NVCC := nvcc
-NVCCFLAGS := -std=c++20
+NVCCFLAGS := -std=c++20 --expt-relaxed-constexpr -lineinfo 
 
 DEBUG ?= 1
 ifeq ($(DEBUG), 1)
     CXXFLAGS += -g -traceback -dwarf -Mchkstk -gpu=lineinfo,debug -DNDEBUG -Minfo=all 
-    NVCCFLAGS += -g -G
+    NVCCFLAGS += -g 
 else
-    CXXFLAGS += -Ofast  -march=native -mtune=native -Minfo=stdpar
+    CXXFLAGS +=  -O4 -Msafeptr=all -Mprof=dwarf -march=native -mtune=native -Minfo=stdpar -gpu=lineinfo
     NVCCFLAGS += -O3
 endif
 
