@@ -74,13 +74,6 @@ int main(int argc, char **argv)
                          pnew_data[(ny - 1) * nx + i] = 10.f;
                      })));
 
-    // for (int y = 0; y < ny; y++) {
-    //     for (int x = 0; x < nx; x++) {
-    //         std::printf("%2.3f  ", p_data[y * nx + x]);
-    //     }
-    //     std::cout << '\n';
-    // }
-
     int *wavefront = new int;
     *wavefront     = 0;
 
@@ -100,8 +93,7 @@ int main(int argc, char **argv)
                                        int ymin = *wavefront - xmin;
                                        int ymax = *wavefront - xmax;
 
-                                       int x = i & (nx - 1);
-                                       int y = i / nx;
+
 
                                        //    std::printf("wavefront: %d, xmin: %d, xmax: %d, ymin:
                                        //    %d, "
@@ -109,7 +101,7 @@ int main(int argc, char **argv)
                                        //                *wavefront, xmin, xmax, ymin, ymax, xmin,
                                        //                i & (nx - 1), xmax, i);
 
-                                       if (xmin <= x && x <= xmax && ymin <= y && y <= ymax) {
+                                       if (ymin * nx + xmin <= i && i <= ymax * nx + xmax) {
                                            pnew_data[i] =
                                                0.25 * (pnew_data[i - nx] + pnew_data[i - 1] +
                                                        p_data[i + nx] + p_data[i + 1]);
