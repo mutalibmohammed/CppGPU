@@ -187,15 +187,15 @@ int main(int argc, char** argv) {
 #ifdef SERIAL
         gauss_seidel<<<1, 1>>>(ny, nx, d_p, d_pnew);
 #elif defined WAVE
-        gauss_seidel_wave<<<1, nx>>>(ny, nx, d_p, d_pnew);
+        gauss_seidel_wave<<<1, std::min(nx, ny)>>>(ny, nx, d_p, d_pnew);
 
 #elif defined WAVE2
+
         for (int wavefront = 2; wavefront < ny + nx - 1; wavefront++)
-            gauss_seidel_wave<<<dim3(nby, nbx), dim3(blocksize_y, blocksize_x)>>>(ny, nx, wavefront,
-                                                                                  d_p, d_pnew);
+            gauss_seidel_wave<<<dim3(nbx, nby), dim3(blocksize_x, blocksize_y)>>>(wavefront, d_p,
+                                                                                  d_pnew);
 
 #elif defined BLOCK_WAVE
-#pragma unroll
         for (int bwavefront = 0; bwavefront < nby + nbx - 1; bwavefront++) {
             // Figure out the number of blocks on the wavefront
             const auto [bxmin, bxmax] = wavefront_coordinates(nby, nbx, bwavefront, 0);
