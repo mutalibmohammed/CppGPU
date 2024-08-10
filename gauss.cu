@@ -5,7 +5,7 @@
 #ifdef DEBUG
 
 // clang-format off
-#define CHECK_CUDA(call) do {         cudaError_t status = call;         if (status != cudaSuccess) {             std::fprintf(stderr, "CUDA Error at line %d in %s: %s\n", __LINE__, __FILE__,                          cudaGetErrorString(status));} } while (0)
+#define CHECK_CUDA(call) do { cudaError_t status = call; if (status != cudaSuccess) { std::fprintf(stderr, "CUDA Error at line %d in %s: %s\n", __LINE__, __FILE__, cudaGetErrorString(status));} } while (0)
 // clang-format on
 #else
 #define CHECK_CUDA(call) \
