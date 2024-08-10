@@ -33,11 +33,11 @@ template <typename T>
 void gauss_seidel(const grid<T> p, grid<T> pnew) {
     const int ny = p.extent(0), nx = p.extent(1);
     std::for_each_n(std::execution::par_unseq, std::views::iota(0).begin(), 1, [=] {
-    for (const auto& y : std::views::iota(1, ny - 1)) {
-        for (const auto& x : std::views::iota(1, nx - 1)) {
-            pnew(y, x) = 0.25 * (pnew(y - 1, x) + pnew(y, x - 1) + p(y + 1, x) + p(y, x + 1));
+        for (const auto& y : std::views::iota(1, ny - 1)) {
+            for (const auto& x : std::views::iota(1, nx - 1)) {
+                pnew(y, x) = 0.25 * (pnew(y - 1, x) + pnew(y, x - 1) + p(y + 1, x) + p(y, x + 1));
+            }
         }
-    }
     });
 }
 
@@ -75,51 +75,33 @@ void gauss_seidel_wave2(const grid<T> p, grid<T> pnew) {
     }
 }
 
-template <typename T, int blocksize_y, int blocksize_x>
-void gauss_seidel_block_wave(const grid<T> p, grid<T> pnew) {
+template <typename T>
+void gauss_seidel_block_wave(const int blocksize_y, const int blocksize_x, const int nby,
+                             const int nbx, const grid<T> p, grid<T> pnew) {
     const int ny = p.extent(0), nx = p.extent(1);
-    const int nbx = nx / blocksize_x;
-    const int nby = ny / blocksize_y;
-
-    // printf("nbx: %d, nby: %d\n", nbx, nby);
 
     for (int bwavefront = 0; bwavefront < nby + nbx - 1; bwavefront++) {
         const auto [bxmin, bxmax] = wavefront_coordinates(nby, nbx, bwavefront, 0);
 
         const auto bx_range = std::views::iota(bxmin, bxmax + 1);
-        // printf("bxmin: %d, bxmax: %d, bwavefront: %d, size: %d\n", bxmin, bxmax, bwavefront,
-        // bx_range.size());
 
         std::for_each(std::execution::par_unseq, bx_range.begin(), bx_range.end(), [=](auto bx) {
-            // printf("bwavefront: %d\n", bwavefront);
-            // printf("===bx: %d\n", bx);
             int by = bwavefront - bx;
 
             int startx = bx * blocksize_x;
             int starty = by * blocksize_y;
 
-            // printf("bwavefront: %d, bx: %d, by: %d, startx: %d, starty: %d\n", bwavefront, bx,
-            // by, startx, starty);
-
             const uint boundary =
                 (by == (nby - 1)) << 3 | (bx == (nbx - 1)) << 2 | (by == 0) << 1 | (bx == 0);
-
-            // printf("=== bwavefront: %d, boundary: %u, bx: %d, by: %d\n", bwavefront, boundary,
-            // bx, by);
 
             for (int wavefront = 0; wavefront < blocksize_x + blocksize_y - 1; wavefront++) {
                 const auto [xmin, xmax] =
                     wavefront_coordinates(blocksize_y, blocksize_x, wavefront, boundary);
+
                 std::ranges::for_each(std::views::iota(xmin, xmax + 1), [=](auto x) {
                     int y = wavefront - x;
-                    // printf("wavefront: %d, x: %d, y: %d\n", wavefront, x, y);
-                    y = starty + y;
-                    x = startx + x;
-
-                    // printf("wavefront: %d, x: %d, y: %d\n", wavefront, x, y);
-                    // if (x < 1 || x >= nx - 1 || y >= 1 && y < ny - 1)
-                    //     pnew(y, x) = 0.25 * (pnew(y - 1, x) + pnew(y, x - 1) + p(y + 1, x) + p(y,
-                    //     x + 1));
+                    y     = starty + y;
+                    x     = startx + x;
                     pnew(y, x) =
                         0.25 * (pnew(y - 1, x) + pnew(y, x - 1) + p(y + 1, x) + p(y, x + 1));
                 });
@@ -128,21 +110,19 @@ void gauss_seidel_block_wave(const grid<T> p, grid<T> pnew) {
     }
 }
 
-template <typename T, int blocksize_y, int blocksize_x>
-void gauss_seidel_block_wave_2(const grid<T> p, grid<T> pnew) {
-    const int           ny = p.extent(0), nx = p.extent(1);
-    constexpr const int max_wavefront =
-        std::max(blocksize_x, blocksize_y);  // No. of blocks in the longest wavefront
-    constexpr const auto x_range = std::views::iota(0, max_wavefront);
-    const int            nbx     = nx / blocksize_x;
-    const int            nby     = ny / blocksize_y;
+template <typename T>
+void gauss_seidel_block_wave_2(const int blocksize_y, const int blocksize_x, const int nby,
+                               const int nbx, const grid<T> p, grid<T> pnew) {
+    const int ny = p.extent(0), nx = p.extent(1);
+    // No. of blocks in the longest wavefront
+    const int  max_wavefront = std::min(blocksize_x, blocksize_y);
+    const auto x_range       = std::views::iota(0, max_wavefront);
 
-#pragma unroll
     for (int bwavefront = 0; bwavefront < nby + nbx - 1; bwavefront++) {
         const auto [bxmin, bxmax] = wavefront_coordinates(nby, nbx, bwavefront, 0);
         const auto bx_range       = std::views::iota(bxmin, bxmax + 1);
         auto       idxs           = std::views::cartesian_product(bx_range, x_range);
-#pragma unroll
+
         for (int wavefront = 0; wavefront < blocksize_x + blocksize_y - 1; wavefront++) {
             std::for_each(std::execution::par_unseq, idxs.begin(), idxs.end(), [=](auto pair) {
                 const auto [bx, x] = pair;
@@ -153,13 +133,11 @@ void gauss_seidel_block_wave_2(const grid<T> p, grid<T> pnew) {
                     wavefront_coordinates(blocksize_y, blocksize_x, wavefront, boundary);
 
                 if (x >= xmin && x <= xmax) {
-                    const int y      = wavefront - x;
-                    const int startx = bx * blocksize_x;
-                    const int starty = by * blocksize_y;
-                    const int x_     = startx + x;
-                    const int y_     = starty + y;
-                    pnew(y_, x_)     = 0.25 * (pnew(y_ - 1, x_) + pnew(y_, x_ - 1) + p(y_ + 1, x_) +
-                                           p(y_, x_ + 1));
+                    const int y = wavefront - x;
+                    x           = bx * blocksize_x + x;
+                    y           = by * blocksize_y + y;
+                    pnew(y, x) =
+                        0.25 * (pnew(y - 1, x) + pnew(y, x - 1) + p(y + 1, x) + p(y, x + 1));
                 }
             });
         }
@@ -182,66 +160,69 @@ void initialization(grid<T> p) {
                     });
 }
 
-template <typename T, typename Function>
-inline void runAndTimeGaussSeidel(grid<T>& p, grid<T>& pnew, int n, Function gaussSeidelFunc,
-                                  std::string name) {
-    initialization<T>(p);
-    initialization<T>(pnew);
-
-    auto start = std::chrono::high_resolution_clock::now();
-    for (int it = 0; it < n; ++it) {
-        gaussSeidelFunc(p, pnew);  // Call the specific Gauss-Seidel function
-        std::swap(p, pnew);
-    }
-    auto end = std::chrono::high_resolution_clock::now();
-
-    auto grid_size = static_cast<double>(p.size() * sizeof(T) * 2) * 1e-9;  // GB
-    auto memory_bw = grid_size * static_cast<double>(n) /
-                     std::chrono::duration<double>(end - start).count();  // GB/s
-
-    std::cout << name << ": "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
-              << " ms  " << memory_bw << " GB/s\n";
-}
-
 int main(int argc, char** argv) {
-    if (argc != 4) {
+    if (argc != 4 && argc != 6) {
         std::cerr << "Error incorrect arguments" << std::endl;
-        std::cerr << "Usage: " << argv[0] << " <ny> <nx> <iterations>" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <ny> <nx> <iterations> [blocksize_y] [blocksize_x]"
+                  << std::endl;
         return 1;
     }
+    const int ny          = std::stoi(argv[1]);
+    const int nx          = std::stoi(argv[2]);
+    const int n           = std::stoi(argv[3]);
+    const int blocksize_y = (argc == 6) ? std::stoi(argv[4]) : 16;
+    const int blocksize_x = (argc == 6) ? std::stoi(argv[5]) : 16;
+    const int nbx         = nx / blocksize_x;
+    const int nby         = ny / blocksize_y;
 
-    using type = double;
+    using type = float;
 
-    const int           ny          = std::stoi(argv[1]);
-    const int           nx          = std::stoi(argv[2]);
-    const int           n           = std::stoi(argv[3]);
-    constexpr const int blocksize_y = 16;
-    constexpr const int blocksize_x = 16;
-
-    assert((ny % blocksize_y == 0 && "ny must be divisible by blocksize"));
-    assert((nx % blocksize_x == 0 && "nx must be divisible by blocksize"));
+    assert(ny % blocksize_y == 0 && "ny must be divisible by blocksize");
+    assert(nx % blocksize_x == 0 && "nx must be divisible by blocksize");
 
     std::vector<type> p_data(ny * nx), pnew_data(ny * nx);
 
     grid<type> p(p_data.data(), ny, nx);
     grid<type> pnew(pnew_data.data(), ny, nx);
 
+    initialization(p);
+    initialization(pnew);
+
+    auto start = std::chrono::high_resolution_clock::now();
+    for (int it = 0; it < n; ++it) {
 #ifdef SERIAL
-    runAndTimeGaussSeidel(p, pnew, n, gauss_seidel<type>, "Serial");
+        gauss_seidel<type>(p, pnew);
 #elif defined WAVE
-    runAndTimeGaussSeidel(p, pnew, n, gauss_seidel_wave<type>, "Wave");
+        gauss_seidel_wave<type>(p, pnew);
 #elif defined WAVE2
-    runAndTimeGaussSeidel(p, pnew, n, gauss_seidel_wave2<type>, "Wave2");
+        gauss_seidel_wave2<type>(p, pnew);
 #elif defined BLOCK_WAVE
-    runAndTimeGaussSeidel(p, pnew, n, gauss_seidel_block_wave<type, blocksize_y, blocksize_x>,
-                          "Block Wave");
+        gauss_seidel_block_wave(blocksize_y, blocksize_x, nby, nbx, p, pnew);
 #elif defined BLOCK_WAVE2
-    runAndTimeGaussSeidel(p, pnew, n, gauss_seidel_block_wave_2<type, blocksize_y, blocksize_x>,
-                          "Block Wave 2")
+        gauss_seidel_block_wave_2<type>(blocksize_y, blocksize_x, nby, nbx, p, pnew);
 #else
 #error MISSING MACRO DEFINTION TO CHOOSE WAVEFRONT TYPE(SERIAL, WAVE, WAVE2, BLOCK_WAVE, BLOCK_WAVE2)
 #endif
+        std::swap(p, pnew);
+    }
+    const auto stop = std::chrono::high_resolution_clock::now();
+    const auto duration =
+        std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count();
+
+    std::cout << "Total time: " << duration << " ms\n";
+
+    std::cout << "Memory bandwidth (No Cache Model): "
+              << ((ny - 1ull) * (nx - 1ull) * sizeof(type) * 5ull * n) / duration * 1e-6
+              << " GB/s\n";
+    std::cout << "Memory bandwidth (Perfect Cache Model): "
+              << ((ny - 1ull) * (nx - 1ull) * sizeof(type) * 3ull * n) / duration * 1e-6
+              << " GB/s\n";
+
+    std::cout << "Compute Throughput: " << ((ny - 1ull) * (nx - 1ull) * 4ull * n) / duration * 1e-6
+              << " GFLOPS Precision: " << sizeof(type) << "bytes\n";
+
+    std::cout << ny << " " << nx << " " << n << " " << blocksize_y << " " << blocksize_x
+              << std::endl;
 
     return 0;
 }
