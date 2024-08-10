@@ -125,10 +125,8 @@ __global__ void gauss_seidel_block_wave(const int nby, const int nbx, const int 
 
     // printf("B Wavefront: %d, Block(%2d): %d, %d\n", bwavefront, blockIdx bx, by);
 
-    if (bx > bxmax) {
-        printf("Block out of bounds\n");
-    }
-
+    assert(bx <= bxmax && "Block out of bounds");
+    
     int startx = bx * blocksize_x;
     int starty = by * blocksize_y;
 
@@ -139,6 +137,7 @@ __global__ void gauss_seidel_block_wave(const int nby, const int nbx, const int 
         int x = threadIdx.x;
 
         if (x >= xmin && x <= xmax) {
+// TODO resolve this
             int y = wavefront - x;
             y     = y + starty;
             x     = x + startx;
