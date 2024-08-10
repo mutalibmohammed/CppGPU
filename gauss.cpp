@@ -57,23 +57,19 @@ void gauss_seidel_wave(const grid<T> p, grid<T> pnew) {
 
 template <typename T>
 void gauss_seidel_wave2(const grid<T> p, grid<T> pnew) {
-    const auto ny = p.extent(0);
-    const auto nx = p.extent(1);
+    const int ny = p.extent(0), nx = p.extent(1);
     for (int wavefront = 2; wavefront < ny + nx - 1; wavefront++) {
         std::for_each_n(
             std::execution::par_unseq, std::views::iota(0).begin(), ny * nx, [=](auto i) {
                 const auto [xmin, xmax] = wavefront_coordinates(ny, nx, wavefront, 0b1111);
 
-                int ymin = wavefront - xmin;
-                int ymax = wavefront - xmax;
-
                 // Convert 1D idx to 2D idx
                 int x = i & (nx - 1);
                 int y = i / nx;
 
-                if (ymin * nx + xmin <= i && i <= ymax * nx + xmax) {
+                if (xmin <= x && x <= xmax && wavefront - x == y) {
                     pnew(y, x) =
-                        0.25f * (pnew(y - 1, x) + pnew(y, x - 1) + p(y + 1, x) + p(y, x + 1));
+                        0.25 * (pnew(y - 1, x) + pnew(y, x - 1) + p(y + 1, x) + p(y, x + 1));
                 }
             });
     }
