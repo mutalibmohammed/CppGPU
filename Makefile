@@ -1,16 +1,16 @@
 # Compiler and Flags
 CXX := nvc++
-CXXFLAGS := -std=c++20 -stdpar=gpu  -mcmodel=medium -Iinclude -Istdexec/include/
+CXXFLAGS := -std=c++20 -stdpar=gpu  -mcmodel=medium -Iinclude -Istdexec/include/ -Msafeptr=all -DBLOCK_WAVE
 NVCC := nvcc
-NVCCFLAGS := -std=c++20 --expt-relaxed-constexpr -lineinfo -DWAVE2
+NVCCFLAGS := -std=c++20 --expt-relaxed-constexpr -lineinfo -Xcompiler -Wall  -DBLOCK_WAVE
 
 DEBUG ?= 1
 ifeq ($(DEBUG), 1)
     CXXFLAGS += -g -traceback -dwarf -Mchkstk -gpu=lineinfo,debug -Minfo=all 
-    NVCCFLAGS += -g 
+    NVCCFLAGS += -g -DDEBUG
 else
-    CXXFLAGS +=  -O4 -Msafeptr=all -Mprof=dwarf -march=native -mtune=native -Minfo=stdpar -gpu=lineinfo
-    NVCCFLAGS += -O3
+    CXXFLAGS +=  -O4 -march=native -mtune=native -Minfo=stdpar -gpu=lineinfo
+    NVCCFLAGS += -O4 -arch=native -lto -DNDEBUG
 endif
 
 
@@ -24,7 +24,7 @@ SEN_SRCS := gauss_sender.cpp
 OUT_DIR := out
 
 # Targets
-all: gauss gauss_cu
+all: gauss gauss_cu gauss_sender
 
 gauss_sender: $(SEN_SRCS)
 #	mkdir -p $(OUT_DIR)
