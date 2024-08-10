@@ -32,11 +32,13 @@ constexpr std::pair<T, T> wavefront_coordinates(T ny, T nx, T wavefront, uint bo
 template <typename T>
 void gauss_seidel(const grid<T> p, grid<T> pnew) {
     const int ny = p.extent(0), nx = p.extent(1);
+    std::for_each_n(std::execution::par_unseq, std::views::iota(0).begin(), 1, [=] {
     for (const auto& y : std::views::iota(1, ny - 1)) {
         for (const auto& x : std::views::iota(1, nx - 1)) {
             pnew(y, x) = 0.25 * (pnew(y - 1, x) + pnew(y, x - 1) + p(y + 1, x) + p(y, x + 1));
         }
     }
+    });
 }
 
 template <typename T>
