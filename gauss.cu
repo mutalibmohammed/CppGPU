@@ -237,11 +237,11 @@ int main(int argc, char** argv) {
     unsigned long long bytes = (ny - 1ull) * (nx - 1ull) * n;
     std::printf("Total time: %f ms\n", milliseconds);
     std::printf("Memory bandwidth (No Cache Model): %f GB/s\n",
-                (5 * bytes * sizeof(gtype) / milliseconds * 1e-6));
+                (5ull * bytes * sizeof(gtype) / milliseconds * 1e-6));
     std::printf("Memory bandwidth (Perfect Cache Model): %f GB/s\n",
-                (3 * bytes * sizeof(gtype) / milliseconds * 1e-6));
+                (3ull * bytes * sizeof(gtype) / milliseconds * 1e-6));
     std::printf("Compute Throughput: %f GFLOPS Precision %lu bytes\n",
-                4 * bytes / milliseconds * 1e-6, sizeof(gtype));
+                4ull * bytes / milliseconds * 1e-6, sizeof(gtype));
     std::printf("%d %d %d %d %d\n", ny, nx, n, blocksize_x, blocksize_y);
 
     delete[] p;
