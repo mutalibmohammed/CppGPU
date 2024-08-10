@@ -2,14 +2,17 @@
 #include <iostream>
 #include <numeric>
 
-#define CHECK_CUDA(call)                                                                  \
-    do {                                                                                  \
-        cudaError_t status = call;                                                        \
-        if (status != cudaSuccess) {                                                      \
-            std::fprintf(stderr, "CUDA Error at line %d in %s: %s\n", __LINE__, __FILE__, \
-                         cudaGetErrorString(status));                                     \
-        }                                                                                 \
+#ifdef DEBUG
+
+// clang-format off
+#define CHECK_CUDA(call) do {         cudaError_t status = call;         if (status != cudaSuccess) {             std::fprintf(stderr, "CUDA Error at line %d in %s: %s\n", __LINE__, __FILE__,                          cudaGetErrorString(status));} } while (0)
+// clang-format on
+#else
+#define CHECK_CUDA(call) \
+    do {                 \
+        call;            \
     } while (0)
+#endif
 
 __host__ __device__ constexpr inline int _max(int a, int b) {
     return a > b ? a : b;
@@ -47,13 +50,6 @@ __global__ void initialize(T* p, T* pnew) {
         pnew[y * nx + x] = 10;
     }
 }
-
-// void test_wavefront_coordinates() {
-//     auto constexpr result = wavefront_coordinates(10, 10, 9, 0b1111);
-//     static_assert(result.first == 1);
-//     static_assert(result.second == 8, "Second value is not 7");
-//     std::cout << result.second << std::endl;
-// }
 
 template <typename T>
 __global__ void gauss_seidel(const int ny, const int nx, const T* p, T* pnew) {
