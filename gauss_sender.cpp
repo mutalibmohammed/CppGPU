@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cassert>
+#include <chrono>
 #include <iostream>
 #include <vector>
 
@@ -48,38 +49,38 @@ int main(int argc, char **argv)
     auto gpu_sched = stream_ctx.get_scheduler();
 
     // Initialize the data:
+    int* wavefront = new int;
+
     stdexec::sync_wait(
         stdexec::just() |
-        exec::on(gpu_sched,
-                 stdexec::bulk(
-                     ny * nx,
-                     [p_data = p_data.data(), pnew_data = pnew_data.data(), ny, nx](std::size_t i) {
-                         p_data[i]    = 0.0;
-                         pnew_data[i] = 0.0;
-                     }) |
+        exec::on(gpu_sched, stdexec::bulk(ny * nx,
+                                          [p_data = p_data.data(), pnew_data = pnew_data.data(), ny,
+                                           nx](std::size_t i) {
+                                              p_data[i]    = 0.0;
+                                              pnew_data[i] = 0.0;
+                                          }) |
 
-                     stdexec::bulk(ny,
-                                   [p_data = p_data.data(), pnew_data = pnew_data.data(), ny,
-                                    nx](std::size_t i) {
-                                       p_data[i * nx]             = 10.f;
-                                       p_data[i * nx + nx - 1]    = 10.f;
-                                       pnew_data[i * nx]          = 10.f;
-                                       pnew_data[i * nx + nx - 1] = 10.f;
-                                   }) |
-                     stdexec::bulk(nx, [p_data = p_data.data(), pnew_data = pnew_data.data(), ny,
-                                        nx](std::size_t i) {
-                         p_data[i]                    = 10.f;
-                         p_data[(ny - 1) * nx + i]    = 10.f;
-                         pnew_data[i]                 = 10.f;
-                         pnew_data[(ny - 1) * nx + i] = 10.f;
-                     })));
+                                stdexec::bulk(ny,
+                                              [p_data = p_data.data(), pnew_data = pnew_data.data(),
+                                               ny, nx](std::size_t i) {
+                                                  p_data[i * nx]             = 10.f;
+                                                  p_data[i * nx + nx - 1]    = 10.f;
+                                                  pnew_data[i * nx]          = 10.f;
+                                                  pnew_data[i * nx + nx - 1] = 10.f;
+                                              }) |
+                                stdexec::bulk(nx,
+                                              [p_data = p_data.data(), pnew_data = pnew_data.data(),
+                                               ny, nx](std::size_t i) {
+                                                  p_data[i]                    = 10.f;
+                                                  p_data[(ny - 1) * nx + i]    = 10.f;
+                                                  pnew_data[i]                 = 10.f;
+                                                  pnew_data[(ny - 1) * nx + i] = 10.f;
+                                              }) |
+                                stdexec::then([wavefront]() { *wavefront = 0; })));
 
-    int *wavefront = new int;
-    *wavefront     = 0;
+    const int nwavefronts = ny + nx - 1;
 
-    int nwavefronts = ny + nx - 1;
-
-#pragma unroll
+    auto start = std::chrono::high_resolution_clock::now();
     for (size_t it = 0; it < n; it++) {
         auto work =
             stdexec::just() |
@@ -104,19 +105,25 @@ int main(int argc, char **argv)
         stdexec::sync_wait(std::move(work));
         std::swap(p_data, pnew_data);
     }
+    const auto stop = std::chrono::high_resolution_clock::now();
+    const auto duration =
+        std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count();
 
-    // for (int y = 0; y < ny; y++) {
-    //     for (int x = 0; x < nx; x++) {
-    //         std::printf("%2.3f  ", p_data[y * nx + x]);
-    //     }
-    //     std::cout << '\n';
-    // }
+    std::cout << "Total time: " << duration << " ms\n";
 
-    type sum = 0.f;
-    for (int i = 0; i < ny * nx; i++) {
-        sum += p_data[i];
-    }
+    std::cout << "Memory bandwidth (No Cache Model): "
+              << ((ny - 1ull) * (nx - 1ull) * sizeof(type) * 5ull * n) / duration * 1e-6
+              << " GB/s\n";
+    std::cout << "Memory bandwidth (Perfect Cache Model): "
+              << ((ny - 1ull) * (nx - 1ull) * sizeof(type) * 3ull * n) / duration * 1e-6
+              << " GB/s\n";
 
-    std::cout << "Sum: " << sum << std::endl;
+    std::cout << "Compute Throughput: " << ((ny - 1ull) * (nx - 1ull) * 4ull * n) / duration * 1e-6
+              << " GFLOPS Precision: " << sizeof(type) << "bytes\n";
+
+    std::cout << ny << " " << nx << " " << n << " " << std::endl;
+
+    delete wavefront;
+
     return 0;
 }
