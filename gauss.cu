@@ -78,17 +78,19 @@ __global__ void gauss_seidel_wave(const int ny, const int nx, const T* p, T* pne
     }
 }
 
+// Wave 2
 template <typename T>
-__global__ void gauss_seidel_wave(const int ny, const int nx, const int wavefront, const T* p,
-                                  T* pnew) {
+__global__ void gauss_seidel_wave(const int wavefront, const T* p, T* pnew) {
+const int nx = gridDim.x * blockDim.x;
+    const int ny = gridDim.y * blockDim.y;
+
     auto [xmin, xmax] = wavefront_coordinates(ny, nx, wavefront, 0b1111);
+const auto x      = blockIdx.x * blockDim.x + threadIdx.x;
+const auto y      = blockIdx.y * blockDim.y + threadIdx.y;
 
-    int x = blockIdx.x * blockDim.x + threadIdx.x;
-
-    if (x >= xmin && x <= xmax) {
-        int y            = wavefront - x;
-        pnew[y * nx + x] = 0.25 * (pnew[(y - 1) * nx + x] + pnew[y * nx + (x - 1)] +
-                                   p[(y + 1) * nx + x] + p[y * nx + (x + 1)]);
+    if (xmin <= x && x <= xmax && wavefront - x == y) {
+        const auto i = y * nx + x;
+        pnew[i]      = 0.25 * (pnew[i - nx] + pnew[i - 1] + p[i + nx] + p[i + 1]);
     }
 }
 
