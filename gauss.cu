@@ -81,12 +81,12 @@ __global__ void gauss_seidel_wave(const int ny, const int nx, const T* p, T* pne
 // Wave 2
 template <typename T>
 __global__ void gauss_seidel_wave(const int wavefront, const T* p, T* pnew) {
-const int nx = gridDim.x * blockDim.x;
+    const int nx = gridDim.x * blockDim.x;
     const int ny = gridDim.y * blockDim.y;
 
     auto [xmin, xmax] = wavefront_coordinates(ny, nx, wavefront, 0b1111);
-const auto x      = blockIdx.x * blockDim.x + threadIdx.x;
-const auto y      = blockIdx.y * blockDim.y + threadIdx.y;
+    const auto x      = blockIdx.x * blockDim.x + threadIdx.x;
+    const auto y      = blockIdx.y * blockDim.y + threadIdx.y;
 
     if (xmin <= x && x <= xmax && wavefront - x == y) {
         const auto i = y * nx + x;
@@ -126,7 +126,7 @@ __global__ void gauss_seidel_block_wave(const int nby, const int nbx, const int 
     // printf("B Wavefront: %d, Block(%2d): %d, %d\n", bwavefront, blockIdx bx, by);
 
     assert(bx <= bxmax && "Block out of bounds");
-    
+
     int startx = bx * blocksize_x;
     int starty = by * blocksize_y;
 
@@ -137,7 +137,7 @@ __global__ void gauss_seidel_block_wave(const int nby, const int nbx, const int 
         int x = threadIdx.x;
 
         if (x >= xmin && x <= xmax) {
-// TODO resolve this
+            // TODO resolve this
             int y = wavefront - x;
             y     = y + starty;
             x     = x + startx;
@@ -151,23 +151,24 @@ __global__ void gauss_seidel_block_wave(const int nby, const int nbx, const int 
 }
 
 int main(int argc, char** argv) {
-    if (argc != 4) {
+    if (argc != 4 && argc != 6) {
         std::cerr << "Error incorrect arguments" << std::endl;
-        std::cerr << "Usage: " << argv[0] << " <ny> <nx> <iterations>" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <ny> <nx> <iterations> [blocksize_y] [blocksize_x]"
+                  << std::endl;
         return 1;
     }
     const int           ny          = std::stoi(argv[1]);
     const int           nx          = std::stoi(argv[2]);
     const int           n           = std::stoi(argv[3]);
-    constexpr const int blocksize_y = 16;
-    constexpr const int blocksize_x = 16;
+    const int           blocksize_y = (argc == 6) ? std::stoi(argv[4]) : 16;
+    const int           blocksize_x = (argc == 6) ? std::stoi(argv[5]) : 16;
     const int           nbx         = nx / blocksize_x;
     const int           nby         = ny / blocksize_y;
 
-    assert((ny % blocksize_y == 0, "ny must be divisible by blocksize"));
-    assert((nx % blocksize_x == 0, "nx must be divisible by blocksize"));
+    assert(ny % blocksize_y == 0 && "ny must be divisible by blocksize");
+    assert(nx % blocksize_x == 0 && "nx must be divisible by blocksize");
 
-    typedef double gtype;
+    typedef float gtype;
 
     auto p    = new gtype[ny * nx];
     auto pnew = new gtype[ny * nx];
@@ -176,12 +177,17 @@ int main(int argc, char** argv) {
     gtype* d_pnew;
 
     cudaError_t err;
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
 
     CHECK_CUDA(cudaMalloc((void**)&d_p, ny * nx * sizeof(gtype)));
     CHECK_CUDA(cudaMalloc((void**)&d_pnew, ny * nx * sizeof(gtype)));
 
-    initialize<<<dim3(nby, nbx), dim3(blocksize_y, blocksize_x)>>>(d_p, d_pnew);
+    initialize<<<dim3(nbx, nby), dim3(blocksize_x, blocksize_y)>>>(d_p, d_pnew);
     CHECK_CUDA(cudaPeekAtLastError());
+
+    CHECK_CUDA(cudaEventRecord(start));
 
     for (int i = 0; i < n; i++) {
 #ifdef SERIAL
@@ -219,13 +225,32 @@ int main(int argc, char** argv) {
 #endif
     }
 
+    CHECK_CUDA(cudaEventRecord(stop));
+
     CHECK_CUDA(cudaMemcpy(p, d_p, ny * nx * sizeof(gtype), cudaMemcpyDeviceToHost));
     CHECK_CUDA(cudaMemcpy(pnew, d_pnew, ny * nx * sizeof(gtype), cudaMemcpyDeviceToHost));
+
+    CHECK_CUDA(cudaEventSynchronize(stop));
+    float milliseconds = 0;
+    cudaEventElapsedTime(&milliseconds, start, stop);
+
+    unsigned long long bytes = (ny - 1ull) * (nx - 1ull) * n;
+    std::printf("Total time: %f ms\n", milliseconds);
+    std::printf("Memory bandwidth (No Cache Model): %f GB/s\n",
+                (5 * bytes * sizeof(gtype) / milliseconds * 1e-6));
+    std::printf("Memory bandwidth (Perfect Cache Model): %f GB/s\n",
+                (3 * bytes * sizeof(gtype) / milliseconds * 1e-6));
+    std::printf("Compute Throughput: %f GFLOPS Precision %lu bytes\n",
+                4 * bytes / milliseconds * 1e-6, sizeof(gtype));
+    std::printf("%d %d %d %d %d\n", ny, nx, n, blocksize_x, blocksize_y);
 
     delete[] p;
     delete[] pnew;
 
     CHECK_CUDA(cudaFree(d_p));
     CHECK_CUDA(cudaFree(d_pnew));
+    CHECK_CUDA(cudaEventDestroy(start));
+    CHECK_CUDA(cudaEventDestroy(stop));
+
     return 0;
 }
