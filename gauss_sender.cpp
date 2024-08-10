@@ -90,18 +90,10 @@ int main(int argc, char **argv)
                                        auto [xmin, xmax] =
                                            wavefront_coordinates(ny, nx, *wavefront, 0b1111);
 
-                                       int ymin = *wavefront - xmin;
-                                       int ymax = *wavefront - xmax;
+                                       int x = i & (nx - 1);
+                                       int y = i / nx;
 
-
-
-                                       //    std::printf("wavefront: %d, xmin: %d, xmax: %d, ymin:
-                                       //    %d, "
-                                       //                "ymax: %d,  %d  <= %lu <= %d , i: %lu\n",
-                                       //                *wavefront, xmin, xmax, ymin, ymax, xmin,
-                                       //                i & (nx - 1), xmax, i);
-
-                                       if (ymin * nx + xmin <= i && i <= ymax * nx + xmax) {
+                                       if (xmin <= x && x <= xmax && *wavefront - x == y) {
                                            pnew_data[i] =
                                                0.25 * (pnew_data[i - nx] + pnew_data[i - 1] +
                                                        p_data[i + nx] + p_data[i + 1]);
