@@ -95,6 +95,20 @@ const auto y      = blockIdx.y * blockDim.y + threadIdx.y;
 }
 
 template <typename T>
+/**
+ * @brief Performs the Gauss-Seidel method using block wave approach.
+ *
+ * Divides the grid into blocks (similar to CUDA programming model). Blocks on a wavefront
+ * can be executed in parallel. Kernel is launched with the same no. of blocks as the blocks on the
+ * wavefront (in 1D). The no. of threads is equal to the maximum length of a wavefront within a
+ * block. Some calculation is required to figure out addresses based on the block id and the
+ * bwavefront.
+ *
+ * @param nby The number of blocks in the y-direction.
+ * @param nbx The number of blocks in the x-direction.
+ * @param ny The total number of rows in the grid.
+ * @param nx The total number of columns in the grid.
+ */
 __global__ void gauss_seidel_block_wave(const int nby, const int nbx, const int ny, const int nx,
                                         const T* p, T* pnew, const int bwavefront) {
     // Given blockid.x and bwavefront, calculate the startx and starty
