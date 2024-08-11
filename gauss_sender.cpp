@@ -11,11 +11,10 @@
 #include "stdexec/execution.hpp"
 
 template <typename T>
-constexpr std::pair<T, T> wavefront_coordinates(T ny, T nx, T wavefront, uint boundary)
-{
-    int left = boundary & 1;
-    int top = (boundary >> 1) & 1;
-    int right = (boundary >> 2) & 1;
+constexpr std::pair<T, T> wavefront_coordinates(T ny, T nx, T wavefront, uint boundary) {
+    int left   = boundary & 1;
+    int top    = (boundary >> 1) & 1;
+    int right  = (boundary >> 2) & 1;
     int bottom = (boundary >> 3) & 1;
 
     T xmin = std::max(left, wavefront - ((ny - 1 - bottom)));
@@ -23,10 +22,8 @@ constexpr std::pair<T, T> wavefront_coordinates(T ny, T nx, T wavefront, uint bo
     return {xmin, xmax};
 }
 
-int main(int argc, char **argv)
-{
-    if (argc != 4)
-    {
+int main(int argc, char** argv) {
+    if (argc != 4) {
         std::cerr << "Error incorrect arguments" << std::endl;
         std::cerr << "Usage: " << argv[0] << " <ny> <nx> <iterations>" << std::endl;
         return 1;
@@ -36,7 +33,7 @@ int main(int argc, char **argv)
 
     const int ny = std::stoi(argv[1]);
     const int nx = std::stoi(argv[2]);
-    const int n = std::stoi(argv[3]);
+    const int n  = std::stoi(argv[3]);
 
     assert((nx % 2 == 0));
 
@@ -81,24 +78,30 @@ int main(int argc, char **argv)
                                     *wavefront = 0;
                                     *iteration = 0;
                                 })));
-
     const int nwavefronts = ny + nx - 1;
 
     auto start = std::chrono::high_resolution_clock::now();
-    for (size_t it = 0; it < n; it++) {
-        auto work =
-            stdexec::just() |
-            exec::on(gpu_sched,
+    auto work =
+        stdexec::just() |
+        exec::on(gpu_sched,
+#ifdef DEBUG
+                 stdexec::then([pnew_data = pnew_data.data(), p_data = p_data.data(), wavefront,
+                                iteration]() {
+                     std::printf("wavefront %d iteration: %d  %p  %p \n", *wavefront, *iteration,
+                                 pnew_data, p_data);
+                 }) |
+#endif
                      stdexec::bulk(ny * nx,
                                    [pnew_data = pnew_data.data(), p_data = p_data.data(), ny, nx,
-                                    it, wavefront](std::size_t i) {
+                                    wavefront, iteration](std::size_t i) mutable {
                                        auto [xmin, xmax] =
                                            wavefront_coordinates(ny, nx, *wavefront, 0b1111);
 
-                                       printf("%d", *wavefront);
-
                                        int x = i & (nx - 1);
                                        int y = i / nx;
+
+                                       if ((*iteration) & 1)
+                                           std::swap(pnew_data, p_data);
 
                                        if (xmin <= x && x <= xmax && *wavefront - x == y) {
                                            pnew_data[i] =
@@ -106,35 +109,26 @@ int main(int argc, char **argv)
                                                        p_data[i + nx] + p_data[i + 1]);
                                        }
                                    }) |
-                         stdexec::then([wavefront]() { *wavefront += 1; })) |
-            exec::repeat_n(nwavefronts - 1) | stdexec::then([wavefront, iteration]() {
-                *wavefront = 0;
-                *iteration += 1;
-            });
-        stdexec::sync_wait(std::move(work));
-        std::swap(p_data, pnew_data);
-    }
+                     stdexec::then([wavefront]() { *wavefront += 1; })) |
+        exec::repeat_n(nwavefronts) | stdexec::then([wavefront, iteration]() {
+            *wavefront = 0;
+            *iteration += 1;
+        }) |
+#ifdef REDUCE
+        stdexec::then([pnew_data = pnew_data.data(), p_data = p_data.data(), ny, nx, iteration]() {
+            type error = 0.0;
+            for (int i = 0; i < ny * nx; i++) {
+                error = std::max(std::abs(pnew_data[i] - p_data[i]), error);
+            }
+            std::printf("Error: %f iteration: %d\n", error, *iteration);
+        }) |
+#endif
+        exec::repeat_n(n);
+    stdexec::sync_wait(std::move(work));
+
     const auto stop = std::chrono::high_resolution_clock::now();
     const auto duration =
         std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count();
-
-    int* test = new int;
-    *test     = 0;
-
-    auto testwork =
-        stdexec::just() |
-        exec::on(gpu_sched, stdexec::bulk(10,
-                                          [p_data = p_data.data(), ny, nx, test](std::size_t i) {
-                                              std::printf("Iteration: %d test %d\n", i, *test);
-                                          }) |
-                                stdexec::then([test]() {
-                                    *test += 1;
-                                    std::printf("Hello test %d\n", *test);
-                                }) |
-                                stdexec::then([]() { std::printf("World!\n"); })) |
-        exec::repeat_n(5);
-
-    stdexec::sync_wait(std::move(testwork));
 
     std::cout << "Total time: " << duration << " ms\n";
 
@@ -151,6 +145,7 @@ int main(int argc, char **argv)
     std::cout << ny << " " << nx << " " << n << " " << std::endl;
 
     delete wavefront;
+    delete iteration;
 
     return 0;
 }
