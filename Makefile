@@ -1,15 +1,15 @@
 # Compiler and Flags
 CXX := nvc++
-CXXFLAGS := -std=c++20 -stdpar=gpu  -mcmodel=medium -Iinclude -Istdexec/include/ -Msafeptr=all -DBLOCK_WAVE
+CXXFLAGS := -std=c++20 -stdpar=gpu  -mcmodel=medium -Iinclude -Istdexec/include/  -DBLOCK_WAVE -march=native  -Minfo=stdpar
 NVCC := nvcc
-NVCCFLAGS := -std=c++20 --expt-relaxed-constexpr -lineinfo -Xcompiler -Wall  -DBLOCK_WAVE
+NVCCFLAGS := -std=c++20 --expt-relaxed-constexpr -lineinfo -Xcompiler -Wall  -DSERIAL
 
 DEBUG ?= 1
 ifeq ($(DEBUG), 1)
-    CXXFLAGS += -g -traceback -dwarf -Mchkstk -gpu=lineinfo,debug -Minfo=all 
+    CXXFLAGS += -g -traceback -dwarf -Mchkstk -gpu=lineinfo,debug 
     NVCCFLAGS += -g -DDEBUG
 else
-    CXXFLAGS +=  -O4 -march=native -mtune=native -Minfo=stdpar -gpu=lineinfo
+    CXXFLAGS +=  -O4  -mtune=native  -gpu=lineinfo
     NVCCFLAGS += -O4 -arch=native -lto -DNDEBUG
 endif
 
