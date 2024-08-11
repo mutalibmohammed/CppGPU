@@ -2,10 +2,7 @@
 #include <iostream>
 #include <numeric>
 
-#define REDUCE
-
 #ifdef DEBUG
-
 // clang-format off
 #define CHECK_CUDA(call) do { cudaError_t status = call; if (status != cudaSuccess) { std::fprintf(stderr, "CUDA Error at line %d in %s: %s\n", __LINE__, __FILE__, cudaGetErrorString(status));} } while (0)
 // clang-format on
@@ -188,22 +185,22 @@ __global__ void error(const T* p, const T* pnew, T* d_error) {
     }
 }
 
-
 template <typename T>
-__global__ void reduce(T * d_error){
+__global__ void reduce(T* d_error) {
     extern __shared__ T shared_mem[];
     shared_mem[threadIdx.x] = d_error[threadIdx.x];
     __syncthreads();
 
-    for(unsigned stride = blockDim.x / 2; stride > 0; stride >>= 1){
-        if(threadIdx.x < stride)
-            shared_mem[threadIdx.x] = max(shared_mem[threadIdx.x], shared_mem[threadIdx.x + stride]);
+    for (unsigned stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+        if (threadIdx.x < stride)
+            shared_mem[threadIdx.x] =
+                max(shared_mem[threadIdx.x], shared_mem[threadIdx.x + stride]);
     }
 
-    if(threadIdx.x == 0){
+    if (threadIdx.x == 0) {
         d_error[0] = shared_mem[0];
     }
-} 
+}
 
 int main(int argc, char** argv) {
     if (argc != 4 && argc != 6) {

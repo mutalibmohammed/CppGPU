@@ -10,8 +10,6 @@
 
 #include "cartesian_product.hpp"
 
-#define REDUCE
-
 // Godbolt link (Potential bug)
 // https://godbolt.org/z/Ecb3rbP3o
 
