@@ -10,6 +10,8 @@
 
 #include "cartesian_product.hpp"
 
+#define REDUCE
+
 // Godbolt link (Potential bug)
 // https://godbolt.org/z/Ecb3rbP3o
 
@@ -27,6 +29,14 @@ constexpr std::pair<T, T> wavefront_coordinates(T ny, T nx, T wavefront, uint bo
     T xmax = std::min(wavefront - top, nx - 1 - right);
     return {xmin, xmax >= xmin ? xmax : xmin - 1};
 }
+
+// https://stackoverflow.com/questions/47625376/auto-variable-to-store-function-pointer-to-stdmax
+struct max_fn {
+    template <typename T>
+    const T& operator()(const T& a, const T& b) const {
+        return std::max(a, b);
+    }
+};
 
 // Used to verify results
 template <typename T>
@@ -145,6 +155,18 @@ void gauss_seidel_block_wave_2(const int blocksize_y, const int blocksize_x, con
 }
 
 template <typename T>
+T error(const grid<T> p, const grid<T> pnew) {
+    auto ys   = std::views::iota(0, p.extent(0));
+    auto xs   = std::views::iota(0, p.extent(1));
+    auto idxs = std::views::cartesian_product(ys, xs);
+    return std::transform_reduce(std::execution::par_unseq, idxs.begin(), idxs.end(),
+                                 static_cast<T>(0.0), max_fn{}, [=](auto pair) {
+                                     const auto [y, x] = pair;
+                                     return std::abs(pnew(y, x) - p(y, x));
+                                 });
+}
+
+template <typename T>
 void initialization(grid<T> p) {
     std::fill_n(std::execution::par_unseq, p.data_handle(), p.size(), 0.);
     std::for_each_n(std::execution::par_unseq, std::views::iota(0).begin(), p.extent(0),
@@ -202,6 +224,14 @@ int main(int argc, char** argv) {
         gauss_seidel_block_wave_2<type>(blocksize_y, blocksize_x, nby, nbx, p, pnew);
 #else
 #error MISSING MACRO DEFINTION TO CHOOSE WAVEFRONT TYPE(SERIAL, WAVE, WAVE2, BLOCK_WAVE, BLOCK_WAVE2)
+#endif
+
+#ifdef REDUCE
+        type err = error(p, pnew);
+        if (err < 1e-6) {
+            std::cout << "Converged at iteration: " << it << " MAE: " << err << std::endl;
+            break;
+        }
 #endif
         std::swap(p, pnew);
     }

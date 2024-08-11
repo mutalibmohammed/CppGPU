@@ -2,6 +2,8 @@
 #include <iostream>
 #include <numeric>
 
+#define REDUCE
+
 #ifdef DEBUG
 
 // clang-format off
@@ -150,6 +152,59 @@ __global__ void gauss_seidel_block_wave(const int nby, const int nbx, const int 
     }
 }
 
+template <typename T, uint blksize>
+__global__ void error(const T* p, const T* pnew, T* d_error) {
+    extern __shared__ T shared_mem[];
+    auto                i = blockIdx.x * (blockDim.x * 2) + threadIdx.x;
+    shared_mem[threadIdx.x] =
+        max(abs(pnew[i] - p[i]), abs(pnew[i + blockDim.x] - p[i + blockDim.x]));
+    __syncthreads();
+
+    for (unsigned stride = blksize / 2; stride > 32; stride >>= 1) {
+        if (threadIdx.x < stride) {
+            shared_mem[threadIdx.x] =
+                max(shared_mem[threadIdx.x], shared_mem[threadIdx.x + stride]);
+        }
+        __syncthreads();
+    }
+
+    if (threadIdx.x < 32) {
+        if (blksize >= 64)
+            shared_mem[threadIdx.x] = max(shared_mem[threadIdx.x], shared_mem[threadIdx.x + 32]);
+        if (blksize >= 32)
+            shared_mem[threadIdx.x] = max(shared_mem[threadIdx.x], shared_mem[threadIdx.x + 16]);
+        if (blksize >= 16)
+            shared_mem[threadIdx.x] = max(shared_mem[threadIdx.x], shared_mem[threadIdx.x + 8]);
+        if (blksize >= 8)
+            shared_mem[threadIdx.x] = max(shared_mem[threadIdx.x], shared_mem[threadIdx.x + 4]);
+        if (blksize >= 4)
+            shared_mem[threadIdx.x] = max(shared_mem[threadIdx.x], shared_mem[threadIdx.x + 2]);
+        if (blksize >= 2)
+            shared_mem[threadIdx.x] = max(shared_mem[threadIdx.x], shared_mem[threadIdx.x + 1]);
+    }
+
+    if (threadIdx.x == 0) {
+        d_error[blockIdx.x] = shared_mem[0];
+    }
+}
+
+
+template <typename T>
+__global__ void reduce(T * d_error){
+    extern __shared__ T shared_mem[];
+    shared_mem[threadIdx.x] = d_error[threadIdx.x];
+    __syncthreads();
+
+    for(unsigned stride = blockDim.x / 2; stride > 0; stride >>= 1){
+        if(threadIdx.x < stride)
+            shared_mem[threadIdx.x] = max(shared_mem[threadIdx.x], shared_mem[threadIdx.x + stride]);
+    }
+
+    if(threadIdx.x == 0){
+        d_error[0] = shared_mem[0];
+    }
+} 
+
 int main(int argc, char** argv) {
     if (argc != 4 && argc != 6) {
         std::cerr << "Error incorrect arguments" << std::endl;
@@ -157,13 +212,15 @@ int main(int argc, char** argv) {
                   << std::endl;
         return 1;
     }
-    const int           ny          = std::stoi(argv[1]);
-    const int           nx          = std::stoi(argv[2]);
-    const int           n           = std::stoi(argv[3]);
-    const int           blocksize_y = (argc == 6) ? std::stoi(argv[4]) : 16;
-    const int           blocksize_x = (argc == 6) ? std::stoi(argv[5]) : 16;
-    const int           nbx         = nx / blocksize_x;
-    const int           nby         = ny / blocksize_y;
+    const int              ny              = std::stoi(argv[1]);
+    const int              nx              = std::stoi(argv[2]);
+    const int              n               = std::stoi(argv[3]);
+    const int              blocksize_y     = (argc == 6) ? std::stoi(argv[4]) : 16;
+    const int              blocksize_x     = (argc == 6) ? std::stoi(argv[5]) : 16;
+    const int              nbx             = nx / blocksize_x;
+    const int              nby             = ny / blocksize_y;
+    constexpr const size_t reduce_blksize  = 128;
+    const size_t           reduce_gridsize = ny * nx / (reduce_blksize * 2);
 
     assert(ny % blocksize_y == 0 && "ny must be divisible by blocksize");
     assert(nx % blocksize_x == 0 && "nx must be divisible by blocksize");
@@ -172,9 +229,11 @@ int main(int argc, char** argv) {
 
     auto p    = new gtype[ny * nx];
     auto pnew = new gtype[ny * nx];
+    auto perr = new gtype;
 
     gtype* d_p;
     gtype* d_pnew;
+    gtype* d_error;
 
     cudaError_t err;
     cudaEvent_t start, stop;
@@ -183,6 +242,7 @@ int main(int argc, char** argv) {
 
     CHECK_CUDA(cudaMalloc((void**)&d_p, ny * nx * sizeof(gtype)));
     CHECK_CUDA(cudaMalloc((void**)&d_pnew, ny * nx * sizeof(gtype)));
+    CHECK_CUDA(cudaMalloc((void**)&d_error, ny * nx * sizeof(gtype)));
 
     initialize<<<dim3(nbx, nby), dim3(blocksize_x, blocksize_y)>>>(d_p, d_pnew);
     CHECK_CUDA(cudaPeekAtLastError());
@@ -217,6 +277,18 @@ int main(int argc, char** argv) {
 #error MISSING MACRO DEFINTION TO CHOOSE WAVEFRONT TYPE(SERIAL, WAVE, WAVE2, BLOCK_WAVE)
 #endif
 
+#ifdef REDUCE
+        error<gtype, reduce_blksize>
+            <<<reduce_gridsize, reduce_blksize, reduce_blksize * sizeof(gtype)>>>(d_p, d_pnew,
+                                                                                  d_error);
+        reduce<<<1, reduce_blksize, reduce_blksize * sizeof(gtype)>>>(d_error);
+        CHECK_CUDA(cudaMemcpy(perr, d_error, sizeof(gtype), cudaMemcpyDeviceToHost));
+        if (*perr < 1e-6) {
+            std::printf("Converged at iteration %d MAE: %f\n", i, *perr);
+            break;
+        }
+#endif
+
         std::swap(d_p, d_pnew);
 
 #ifdef DEBUG
@@ -246,9 +318,11 @@ int main(int argc, char** argv) {
 
     delete[] p;
     delete[] pnew;
+    delete perr;
 
     CHECK_CUDA(cudaFree(d_p));
     CHECK_CUDA(cudaFree(d_pnew));
+    CHECK_CUDA(cudaFree(d_error));
     CHECK_CUDA(cudaEventDestroy(start));
     CHECK_CUDA(cudaEventDestroy(stop));
 
