@@ -40,7 +40,7 @@ struct max_fn {
 template <typename T>
 void gauss_seidel(const grid<T> p, grid<T> pnew) {
     const int ny = p.extent(0), nx = p.extent(1);
-    std::for_each_n(std::execution::par_unseq, std::views::iota(0).begin(), 1, [=] {
+    std::for_each_n(std::execution::par_unseq, std::views::iota(0).begin(), 1, [=](auto i) {
         for (const auto& y : std::views::iota(1, ny - 1)) {
             for (const auto& x : std::views::iota(1, nx - 1)) {
                 pnew(y, x) = 0.25 * (pnew(y - 1, x) + pnew(y, x - 1) + p(y + 1, x) + p(y, x + 1));
@@ -133,17 +133,17 @@ void gauss_seidel_block_wave_2(const int blocksize_y, const int blocksize_x, con
 
         for (int wavefront = 0; wavefront < blocksize_x + blocksize_y - 1; wavefront++) {
             std::for_each(std::execution::par_unseq, idxs.begin(), idxs.end(), [=](auto pair) {
-                const auto [bx, x] = pair;
-                const auto by      = bwavefront - bx;
+                auto [bx, x]  = pair;
+                const auto by = bwavefront - bx;
                 const uint boundary =
                     (by == (nby - 1)) << 3 | (bx == (nbx - 1)) << 2 | (by == 0) << 1 | (bx == 0);
                 const auto [xmin, xmax] =
                     wavefront_coordinates(blocksize_y, blocksize_x, wavefront, boundary);
 
                 if (x >= xmin && x <= xmax) {
-                    const int y = wavefront - x;
-                    x           = bx * blocksize_x + x;
-                    y           = by * blocksize_y + y;
+                    int y = wavefront - x;
+                    x     = bx * blocksize_x + x;
+                    y     = by * blocksize_y + y;
                     pnew(y, x) =
                         0.25 * (pnew(y - 1, x) + pnew(y, x - 1) + p(y + 1, x) + p(y, x + 1));
                 }
