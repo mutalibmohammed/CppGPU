@@ -27,7 +27,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 1
 
@@ -36,9 +36,115 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
-          plugins: 'code-review@claude-code-plugins'
-          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
+          prompt: |
+            Provide a code review for the given pull request.
+
+            ## Context
+            - REPO: ${{ github.repository }}
+            - PR NUMBER: ${{ github.event.pull_request.number }}
+            - PR TITLE: ${{ github.event.pull_request.title }}
+            - PR DESCRIPTION: ${{ github.event.pull_request.body }}
+            - BASE: ${{ github.event.pull_request.base.sha }}
+            - HEAD: ${{ github.event.pull_request.head.sha }}
+
+            ## Scope rules
+            - Only review files present in the "perfsim" directory (Use gh pr diff and ignore any diff hunks outside perfsim/).
+            - Skip files that are in "perfsim/lib" as they are third-party dependencies.
+            - If changes outside perfsim are relevant (e.g., build config), mention them briefly but do not inline-comment outside perfsim.
+
+            ## Agent assumptions (applies to all agents and subagents)
+            - All tools are functional and will work without error. Do not test tools or make exploratory calls.
+            - Only call a tool if it is required to complete the task. Every tool call should have a clear purpose.
+
+            ## Review Process
+
+            Follow these steps precisely:
+
+            1. Launch a haiku agent to check if any of the following are true:
+               - The pull request does not need code review (e.g. automated PR, trivial change that is obviously correct)
+               - Claude has already commented on this PR (check `gh pr view <PR> --comments` for comments left by claude)
+
+               If any condition is true, stop and do not proceed.
+
+            2. Launch a sonnet agent to view the pull request and return a summary of the changes
+
+            3. Launch 2 bug-finding agents and 1 review agent in parallel to independently review the changes. Each agent should return the list of issues, where each issue includes a description and the reason it was flagged.
+               Assume any C++ code you encounter is using C++23 standard. The agents should do the following:
+
+               Agent 1: Opus bug agent (parallel subagent with agent 2)
+               Scan for obvious bugs. Focus only on the diff itself without reading extra context. Flag only significant bugs; ignore nitpicks and likely false positives. Do not flag issues that you cannot validate without looking at context outside of the git diff.
+
+               Agent 2: Opus bug agent (parallel subagent with agent 1)
+               Look for problems that exist in the introduced code. This could be security issues, incorrect logic, etc. Only look for issues that fall within the changed code.
+
+               Agent 3: Opus C++ agent
+               Review the code for C++ correctness, modern C++23 usage, and Bazel build system setup. Focus on the diff itself without reading extra context. Flag only significant issues; ignore nitpicks and likely false positives. Do not flag issues that you cannot validate without looking at context outside of the git diff.
+
+               **CRITICAL: We only want HIGH SIGNAL issues.** Flag issues where:
+               - The code will fail to compile or parse (syntax errors, type errors, missing imports, unresolved references)
+               - The code will definitely produce wrong results regardless of inputs (clear logic errors)
+               - C++ footguns: dangling references, undefined behavior, memory leaks, use-after-free
+               - Bazel hygiene violations (duplicate targets, missing features in new BUILD.bazel files)
+
+               Do NOT flag:
+               - Code style or quality concerns
+               - Potential issues that depend on specific inputs or state
+               - Subjective suggestions or improvements
+
+               If you are not certain an issue is real, do not flag it. False positives erode trust and waste reviewer time.
+
+               Each subagent should be told the PR title and description for context regarding the author's intent.
+
+            4. For each issue found in the previous step, launch parallel Opus subagents to validate the issue. These subagents should get the PR title and description along with a description of the issue. The agent's job is to review the issue to validate that the stated issue is truly an issue with high confidence. For example, if an issue such as "variable is not defined" was flagged, the subagent's job would be to validate that is actually true in the code.
+
+            5. Filter out any issues that were not validated in step 4. This step will give us our list of high signal issues for our review.
+
+            6. If issues were found, skip to step 7 to post inline comments directly.
+
+               If NO issues were found, post a summary comment using `gh pr comment`:
+               "No issues found. Checked for bugs, C++ correctness, and Bazel hygiene."
+
+            7. Post inline comments for each issue using `mcp__github_inline_comment__create_inline_comment`. For each comment:
+               - Provide a brief description of the issue
+               - For small, self-contained fixes, include a committable suggestion block
+               - For larger fixes (6+ lines, structural changes, or changes spanning multiple locations), describe the issue and suggested fix without a suggestion block
+
+               **IMPORTANT: Only post ONE comment per unique issue. Do not post duplicate comments.**
+
+            Use this list when evaluating issues in Steps 4 and 5 (these are false positives, do NOT flag):
+
+            - Pre-existing issues
+            - Something that appears to be a bug but is actually correct
+            - Bugs in third-party dependencies (e.g., code in perfsim/lib)
+            - Pedantic nitpicks that a senior engineer would not flag
+            - Issues that a linter will catch (do not run the linter to verify)
+
+            ## Notes
+
+            - Use gh CLI to interact with GitHub (e.g., fetch pull requests, create comments). Do not use web fetch.
+            - Create a todo list before starting.
+            - If no issues are found, post a comment with the following format:
+
+            ---
+
+            ## Code review
+
+            No issues found. Checked for bugs, C++ correctness, and Bazel hygiene.
+
+            ---
+
+            - When linking to code in inline comments, follow the following format precisely, otherwise the Markdown preview won't render correctly: https://github.com/anthropics/claude-code/blob/c21d3c10bc8e898b7ac1a2d745bdc9bc4e423afe/package.json#L10-L15
+            - Requires full git sha
+            - You must provide the full sha. Commands like `https://github.com/owner/repo/blob/$(git rev-parse HEAD)/foo/bar` will not work, since your comment will be directly rendered in Markdown.
+            - Repo name must match the repo you're code reviewing
+            - # sign after the file name
+            - Line range format is L[start]-L[end]
+            - Provide at least 1 line of context before and after, centered on the line you are commenting about (eg. if you are commenting about lines 5-6, you should link to `L4-7`)
+
+          claude_args: |
+            --model claude-opus-4-5-20251101
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*),Bash(bazel query:*),Bash(grep:*),Bash(find:*),Bash(cat:*)"
+
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
 
