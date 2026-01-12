@@ -1,52 +1,151 @@
-#include <stdexec/execution.hpp>
-#include <exec/on.hpp>
-#include <exec/static_thread_pool.hpp>
-#include <nvexec/stream_context.cuh>
+#include <algorithm>
+#include <cassert>
+#include <chrono>
+#include <iostream>
 #include <vector>
 
-int main()
-{
-    // Declare a pool of 8 worker CPU threads:
-    exec::static_thread_pool pool(8);
+#include "exec/on.hpp"
+#include "exec/repeat_n.hpp"
+#include "exec/static_thread_pool.hpp"
+#include "nvexec/stream_context.cuh"
+#include "stdexec/execution.hpp"
+
+template <typename T>
+constexpr std::pair<T, T> wavefront_coordinates(T ny, T nx, T wavefront, uint boundary) {
+    int left   = boundary & 1;
+    int top    = (boundary >> 1) & 1;
+    int right  = (boundary >> 2) & 1;
+    int bottom = (boundary >> 3) & 1;
+
+    T xmin = std::max(left, wavefront - ((ny - 1 - bottom)));
+    T xmax = std::min(wavefront - top, nx - 1 - right);
+    return {xmin, xmax};
+}
+
+int main(int argc, char** argv) {
+    if (argc != 4) {
+        std::cerr << "Error incorrect arguments" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <ny> <nx> <iterations>" << std::endl;
+        return 1;
+    }
+
+    using type = float;
+
+    const int ny = std::stoi(argv[1]);
+    const int nx = std::stoi(argv[2]);
+    const int n  = std::stoi(argv[3]);
+
+    assert((nx % 2 == 0));
+
+    std::vector<type> p_data(ny * nx), pnew_data(ny * nx);
 
     // Declare a GPU stream context:
     nvexec::stream_context stream_ctx{};
 
-    // Get a handle to the thread pool:
-    auto cpu_sched = pool.get_scheduler();
+    // Get the GPU scheduler:
     auto gpu_sched = stream_ctx.get_scheduler();
 
-    // Declare three dynamic array with N elements
-    std::size_t N = 5;
-    std::vector<int> v0{1, 1, 1, 1, 1};
-    std::vector<int> v1{2, 2, 2, 2, 2};
-    std::vector<int> v2{0, 0, 0, 0, 0};
+    // Initialize the data:
+    int* wavefront = new int;
+    int* iteration = new int;
 
-    // Describe some work:
-    auto work = stdexec::when_all(
-                    // Double v0 on the CPU
-                    stdexec::just() | exec::on(cpu_sched, stdexec::bulk(N, [v0 = v0.data()](std::size_t i)
-                                                                        { v0[i] *= 2; })),
-                    // Triple v1 on the GPU
-                    stdexec::just() | exec::on(gpu_sched, stdexec::bulk(N, [v1 = v1.data()](std::size_t i)
-                                                                        { v1[i] *= 3; }))) |
-                stdexec::transfer(cpu_sched)
-                // Add the two vectors into the output vector v2 = v0 + v1:
-                | stdexec::bulk(N, [&](std::size_t i)
-                                { v2[i] = v0[i] + v1[i]; }) |
-                stdexec::then([&]
-                              { 
-        int r = 0;
-        for (std::size_t i = 0; i < N; ++i) r += v2[i];
-        return r; });
+    stdexec::sync_wait(
+        stdexec::just() |
+        exec::on(gpu_sched, stdexec::bulk(ny * nx,
+                                          [p_data = p_data.data(), pnew_data = pnew_data.data(), ny,
+                                           nx](std::size_t i) {
+                                              p_data[i]    = 0.0;
+                                              pnew_data[i] = 0.0;
+                                          }) |
 
-        auto [sum] = stdexec::sync_wait(work).value();
+                                stdexec::bulk(ny,
+                                              [p_data = p_data.data(), pnew_data = pnew_data.data(),
+                                               ny, nx](std::size_t i) {
+                                                  p_data[i * nx]             = 10.f;
+                                                  p_data[i * nx + nx - 1]    = 10.f;
+                                                  pnew_data[i * nx]          = 10.f;
+                                                  pnew_data[i * nx + nx - 1] = 10.f;
+                                              }) |
+                                stdexec::bulk(nx,
+                                              [p_data = p_data.data(), pnew_data = pnew_data.data(),
+                                               ny, nx](std::size_t i) {
+                                                  p_data[i]                    = 10.f;
+                                                  p_data[(ny - 1) * nx + i]    = 10.f;
+                                                  pnew_data[i]                 = 10.f;
+                                                  pnew_data[(ny - 1) * nx + i] = 10.f;
+                                              }) |
+                                stdexec::then([wavefront, iteration]() {
+                                    *wavefront = 0;
+                                    *iteration = 0;
+                                })));
+    const int nwavefronts = ny + nx - 1;
 
-    // Print the results:
-    std::printf("sum = %d\n", sum);
-    for (int i = 0; i < N; ++i)
-    {
-        std::printf("v0[%d] = %d, v1[%d] = %d, v2[%d] = %d\n", i, v0[i], i, v1[i], i, v2[i]);
-    }
+    auto start = std::chrono::high_resolution_clock::now();
+    auto work =
+        stdexec::just() |
+        exec::on(gpu_sched,
+#ifdef DEBUG
+                 stdexec::then([pnew_data = pnew_data.data(), p_data = p_data.data(), wavefront,
+                                iteration]() {
+                     std::printf("wavefront %d iteration: %d  %p  %p \n", *wavefront, *iteration,
+                                 pnew_data, p_data);
+                 }) |
+#endif
+                     stdexec::bulk(ny * nx,
+                                   [pnew_data = pnew_data.data(), p_data = p_data.data(), ny, nx,
+                                    wavefront, iteration](std::size_t i) mutable {
+                                       auto [xmin, xmax] =
+                                           wavefront_coordinates(ny, nx, *wavefront, 0b1111);
+
+                                       int x = i & (nx - 1);
+                                       int y = i / nx;
+
+                                       if ((*iteration) & 1)
+                                           std::swap(pnew_data, p_data);
+
+                                       if (xmin <= x && x <= xmax && *wavefront - x == y) {
+                                           pnew_data[i] =
+                                               0.25 * (pnew_data[i - nx] + pnew_data[i - 1] +
+                                                       p_data[i + nx] + p_data[i + 1]);
+                                       }
+                                   }) |
+                     stdexec::then([wavefront]() { *wavefront += 1; })) |
+        exec::repeat_n(nwavefronts) | stdexec::then([wavefront, iteration]() {
+            *wavefront = 0;
+            *iteration += 1;
+        }) |
+#ifdef REDUCE
+        stdexec::then([pnew_data = pnew_data.data(), p_data = p_data.data(), ny, nx, iteration]() {
+            type error = 0.0;
+            for (int i = 0; i < ny * nx; i++) {
+                error = std::max(std::abs(pnew_data[i] - p_data[i]), error);
+            }
+            std::printf("Error: %f iteration: %d\n", error, *iteration);
+        }) |
+#endif
+        exec::repeat_n(n);
+    stdexec::sync_wait(std::move(work));
+
+    const auto stop = std::chrono::high_resolution_clock::now();
+    const auto duration =
+        std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count();
+
+    std::cout << "Total time: " << duration << " ms\n";
+
+    std::cout << "Memory bandwidth (No Cache Model): "
+              << ((ny - 1ull) * (nx - 1ull) * sizeof(type) * 5ull * n) / duration * 1e-6
+              << " GB/s\n";
+    std::cout << "Memory bandwidth (Perfect Cache Model): "
+              << ((ny - 1ull) * (nx - 1ull) * sizeof(type) * 3ull * n) / duration * 1e-6
+              << " GB/s\n";
+
+    std::cout << "Compute Throughput: " << ((ny - 1ull) * (nx - 1ull) * 4ull * n) / duration * 1e-6
+              << " GFLOPS Precision: " << sizeof(type) << "bytes\n";
+
+    std::cout << ny << " " << nx << " " << n << " " << std::endl;
+
+    delete wavefront;
+    delete iteration;
+
     return 0;
 }

@@ -1,16 +1,16 @@
 # Compiler and Flags
 CXX := nvc++
-CXXFLAGS := -std=c++20 -stdpar=gpu --experimental-stdpar -mcmodel=medium -Iinclude
+CXXFLAGS := -std=c++20 -stdpar=gpu  -mcmodel=medium -Iinclude -Istdexec/include/  -DWAVE2 -Minfo=stdpar -Wpedantic
 NVCC := nvcc
-NVCCFLAGS := -std=c++20
+NVCCFLAGS := -std=c++20 --expt-relaxed-constexpr -lineinfo -Xcompiler -Wall  -DWAVE2 
 
 DEBUG ?= 1
 ifeq ($(DEBUG), 1)
-    CXXFLAGS += -g -traceback -dwarf -Mchkstk -gpu=lineinfo,debug -DNDEBUG -Minfo=all 
-    NVCCFLAGS += -g -G
+    CXXFLAGS += -g -traceback -dwarf -Mchkstk -gpu=lineinfo,debug
+    NVCCFLAGS += -g -DDEBUG
 else
-    CXXFLAGS += -Ofast  -march=native -Minfo=stdpar
-    NVCCFLAGS += -O3
+    CXXFLAGS +=  -O4 -fast -mtune=native  -gpu=lineinfo,fastmath -fstrict-aliasing -Msafeptr -Minline -DNDEBUG 
+    NVCCFLAGS += -O4 -arch=native -lto -DNDEBUG
 endif
 
 
@@ -24,18 +24,22 @@ SEN_SRCS := gauss_sender.cpp
 OUT_DIR := out
 
 # Targets
-all: gauss gauss_cu
+all: gauss gauss_cu gauss_sender
+
+gauss_sender: $(SEN_SRCS)
+	mkdir -p $(OUT_DIR)
+	$(CXX) $(CXXFLAGS) -o $(OUT_DIR)/$@ $^
 
 gauss: $(CPP_SRCS)
-#	mkdir -p $(OUT_DIR)
+	mkdir -p $(OUT_DIR)
 	$(CXX) $(CXXFLAGS) -o $(OUT_DIR)/$@ $^
 
 gauss_cu: $(CU_SRCS)
-#	mkdir -p $(OUT_DIR)
+	mkdir -p $(OUT_DIR)
 	$(NVCC) $(NVCCFLAGS) -o $(OUT_DIR)/$@ $^
 
-gauss_sender: $(SEN_SRCS)
 
+  
 
 # Phony Targets (for convenience)
 .PHONY: clean
